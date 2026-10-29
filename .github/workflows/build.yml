@@ -64,14 +64,20 @@ jobs:
       - name: Юніт-тести й самотест воріт
         run: python -m pytest tests/unit tests/gates_selftest -q
 
+      # Ключ кешу -- лише хеш lock. Земельні полігони тут -- обрізаний asset релізу sources-2026-10 (≈ 5 МБ, sha256 у lock),
+      # а не рухомий щоденний архів на 929 МБ. Часткового кешу (fetch упав посередині) повний ключ не займає:
+      # він незмінний, тож недокачане лягає під ключ із суфіксом -partial-<запуск>, а restore-keys підхоплює його.
       - name: Кеш сирих джерел
         id: raw-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: data/raw
           key: raw-${{ hashFiles('config/sources.lock') }}
+          restore-keys: |
+            raw-${{ hashFiles('config/sources.lock') }}-partial-
 
       - name: Завантажити сирі джерела
+        id: fetch
         run: python -m pipeline.fetch
 
       - name: Зберегти кеш сирих джерел
@@ -80,6 +86,18 @@ jobs:
         with:
           path: data/raw
           key: raw-${{ hashFiles('config/sources.lock') }}
+
+      # fetch качає через <файл>.part і перейменовує лише після перевірки sha256, але обірваний запуск міг лишити .part.
+      - name: Прибрати недокачане після збою fetch
+        if: ${{ !cancelled() && steps.fetch.outcome == 'failure' }}
+        run: find data/raw -name '*.part' -delete
+
+      - name: Зберегти частковий кеш після збою fetch
+        if: ${{ !cancelled() && steps.fetch.outcome == 'failure' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/raw
+          key: raw-${{ hashFiles('config/sources.lock') }}-partial-${{ github.run_id }}
 
       # Wikidata build запитує вживу (кеш wikidata-<дата>.json у data/raw): збірки не відтворювані між запусками,
       # момент запиту записано в manifest.json як wikidata_queried_at.

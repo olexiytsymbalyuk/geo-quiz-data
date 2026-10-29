@@ -162,3 +162,62 @@ def test_jobs_have_timeouts_and_workflow_has_concurrency(workflow: dict[str, Any
 
 def test_workflow_has_no_forbidden_letters() -> None:
     assert not re.search("[\u0401\u0451\u042b\u044b\u042a\u044a\u042d\u044d]", WORKFLOW.read_text(encoding="utf-8"))
+
+
+LOCK_KEY = "raw-${{ hashFiles('config/sources.lock') }}"
+
+
+def _named(build: dict[str, Any], uses_prefix: str) -> list[dict[str, Any]]:
+    return [s for s in build["steps"] if str(s.get("uses", "")).startswith(uses_prefix)]
+
+
+def test_raw_cache_key_stays_on_the_lock_and_never_on_the_run(workflow: dict[str, Any]) -> None:
+    build = _jobs(workflow)["build"]
+    (restore,) = _named(build, "actions/cache/restore@")
+    full_saves = [s for s in _named(build, "actions/cache/save@") if s["with"]["key"] == LOCK_KEY]
+
+    assert restore["with"]["key"] == LOCK_KEY
+    assert restore["with"]["path"] == "data/raw"
+    assert len(full_saves) == 1
+
+
+def test_complete_cache_is_saved_only_after_fetch_succeeds(workflow: dict[str, Any]) -> None:
+    build = _jobs(workflow)["build"]
+    (full,) = [s for s in _named(build, "actions/cache/save@") if s["with"]["key"] == LOCK_KEY]
+
+    assert "always()" not in str(full.get("if", ""))
+    assert "failure()" not in str(full.get("if", ""))
+    assert "cache-hit != 'true'" in str(full["if"])
+    assert build["steps"].index(full) > _step_index(build, "pipeline.fetch")
+
+
+def test_partial_cache_is_saved_when_fetch_fails_without_part_files(workflow: dict[str, Any]) -> None:
+    build = _jobs(workflow)["build"]
+    fetch_index = _step_index(build, "pipeline.fetch")
+    fetch_id = build["steps"][fetch_index]["id"]
+    (partial,) = [s for s in _named(build, "actions/cache/save@") if s["with"]["key"] != LOCK_KEY]
+    save_index = build["steps"].index(partial)
+    condition = str(partial["if"])
+
+    assert f"steps.{fetch_id}.outcome == 'failure'" in condition
+    assert "!cancelled()" in condition  # не always(): скасований запуск може лишити недокачане
+    assert save_index > fetch_index
+    # ключ частково заповненого кешу не збігається з повним: той незмінний і не можна дозаписати
+    assert partial["with"]["key"].startswith("raw-${{ hashFiles('config/sources.lock') }}-partial-")
+    assert partial["with"]["path"] == "data/raw"
+    cleanup = [i for i, s in enumerate(build["steps"]) if ".part" in str(s.get("run", ""))]
+    assert cleanup and fetch_index < cleanup[0] < save_index
+    assert f"steps.{fetch_id}.outcome == 'failure'" in str(build["steps"][cleanup[0]]["if"])
+
+
+def test_restore_falls_back_to_the_latest_partial_cache(workflow: dict[str, Any]) -> None:
+    (restore,) = _named(_jobs(workflow)["build"], "actions/cache/restore@")
+
+    assert restore["with"]["restore-keys"].strip() == "raw-${{ hashFiles('config/sources.lock') }}-partial-"
+
+
+def test_ci_does_not_download_the_moving_land_polygons_archive(workflow: dict[str, Any]) -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "osmdata" not in text
+    assert "land-polygons-split-4326.zip" not in text
