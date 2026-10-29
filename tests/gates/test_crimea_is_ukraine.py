@@ -13,7 +13,7 @@ from tests.gates.gate_support import Gazetteer, TileSet, find_one, summarize
 from tests.gates.gazetteer_support import crimea_violations
 from tests.gates.geo_support import FINEST_ZOOM, MAX_UNCOVERED_KM2, crimea_land_gaps, perekop_lines
 
-MIN_ZOOM = 4
+MIN_ZOOM = 3  # найменший зум архіву (pipeline.tiles.MIN_ZOOM)
 
 
 def test_crimean_entities_are_ukrainian(gazetteer: Gazetteer) -> None:

@@ -258,16 +258,16 @@ def test_every_feature_carries_only_whitelisted_keys_and_a_zoom_range(
             assert feature["tippecanoe"]["maxzoom"] == 12
 
 
-def test_land_landmass_and_country_pass_through_at_z4(layers: dict[str, list[dict[str, Any]]]) -> None:
+def test_land_landmass_and_country_pass_through_at_z3(layers: dict[str, list[dict[str, Any]]]) -> None:
     assert [f["properties"] for f in layers["land"]] == [{}]
-    assert _zoom(layers["land"][0]) == 4
+    assert _zoom(layers["land"][0]) == 3
     assert [f["properties"] for f in layers["landmass"]] == [{"class": "neutral"}]
-    assert _zoom(layers["landmass"][0]) == 4
+    assert _zoom(layers["landmass"][0]) == 3
     assert [f["properties"] for f in layers["country"]] == [
         {"id": "wd:Q36", "name:uk": "Польща"},
         {"id": "wd:Q219"},
     ]
-    assert {_zoom(f) for f in layers["country"]} == {4}
+    assert {_zoom(f) for f in layers["country"]} == {3}
 
 
 def test_build_layers_refuses_a_neutral_country_in_the_country_layer(tmp_path: Path, osm_dir: Path) -> None:
@@ -282,9 +282,9 @@ def test_build_layers_refuses_a_neutral_country_in_the_country_layer(tmp_path: P
 def test_place_kinds_and_minzooms(layers: dict[str, list[dict[str, Any]]]) -> None:
     places = _by_id(layers["place"])
     expected = {
-        f"ua:{KYIV_CODE}": ("capital", 4),
-        f"ua:{SEVASTOPOL_CODE}": ("oblast_centre", 4),
-        f"ua:{CENTRE}": ("oblast_centre", 4),
+        f"ua:{KYIV_CODE}": ("capital", 3),
+        f"ua:{SEVASTOPOL_CODE}": ("oblast_centre", 3),
+        f"ua:{CENTRE}": ("oblast_centre", 3),
         f"ua:{BIG_CITY}": ("city", 7),
         f"ua:{TWIN_CITY}": ("city", 7),
         f"ua:{SELYSHCHE}": ("selyshche", 9),
@@ -316,11 +316,11 @@ def test_place_skips_settlements_without_a_point(layers: dict[str, list[dict[str
 def test_admin_levels_minzooms_and_clipping(layers: dict[str, list[dict[str, Any]]]) -> None:
     admin = _by_id(layers["admin"])
     assert {i: (f["properties"]["level"], _zoom(f)) for i, f in admin.items()} == {
-        f"ua:{OBLAST}": (1, 4),
+        f"ua:{OBLAST}": (1, 3),
         f"ua:{RAION}": (2, 7),
         f"ua:{HROMADA_1}": (3, 9),
         f"ua:{HROMADA_2}": (3, 9),
-        f"ua:{KYIV_CODE}": (1, 4),  # K — рівень 1; полігон знайдено за katotth
+        f"ua:{KYIV_CODE}": (1, 3),  # K — рівень 1; полігон знайдено за katotth
     }
     assert admin[f"ua:{KYIV_CODE}"]["properties"]["name:uk"] == "Київ"
     oblast = shape(admin[f"ua:{OBLAST}"]["geometry"])
@@ -337,7 +337,7 @@ def test_admin_line_has_the_state_border_and_no_duplicated_or_offshore_borders(
 ) -> None:
     lines = {f["properties"]["level"]: f for f in layers["admin_line"]}
     assert set(lines) == {0, 1, 2, 3}
-    assert {level: _zoom(f) for level, f in lines.items()} == {0: 4, 1: 4, 2: 7, 3: 9}
+    assert {level: _zoom(f) for level, f in lines.items()} == {0: 3, 1: 3, 2: 7, 3: 9}
     assert shape(lines[0]["geometry"]).length == pytest.approx(10)
     # громади: спільна межа x = 5 довжиною 10 — один раз; зовнішні межі лежать поза контуром і відпали
     assert shape(lines[3]["geometry"]).length == pytest.approx(10)

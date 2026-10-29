@@ -25,7 +25,7 @@ from pipeline.geo_types import Feature, as_multipolygon
 from pipeline.paths import WORK
 from pipeline.text import has_forbidden
 
-MIN_LAYER_ZOOM = 4
+MIN_LAYER_ZOOM = 3
 MAX_LAYER_ZOOM = 12
 
 # Білий список атрибутів за шарами (спека §5.4). Ключа `name` без суфікса немає ніде.
@@ -48,8 +48,8 @@ SEVASTOPOL_CODE = "UA85000000000065278"
 _K_CODES = frozenset({KYIV_CODE, SEVASTOPOL_CODE})
 
 # Мінзуми — стартова точка, [виміряти] під бюджети й щільність підписів.
-_PLACE_MINZOOM = {"capital": 4, "oblast_centre": 4, "city": 7, "selyshche": 9, "selo": 11}
-_ADMIN_MINZOOM = {0: 4, 1: 4, 2: 7, 3: 9}
+_PLACE_MINZOOM = {"capital": MIN_LAYER_ZOOM, "oblast_centre": MIN_LAYER_ZOOM, "city": 7, "selyshche": 9, "selo": 11}
+_ADMIN_MINZOOM = {0: MIN_LAYER_ZOOM, 1: MIN_LAYER_ZOOM, 2: 7, 3: 9}
 _ADMIN_LEVEL = {"oblast": 1, "raion": 2, "hromada": 3}
 PEAK_MINZOOM = 9
 LARGE_ZOOM = 6

@@ -117,16 +117,17 @@ def test_tile_stats_reports_max_size_per_zoom_and_first_screen_budget(tmp_path: 
     assert everywhere["tiles_by_zoom"] == {"0": 1, "1": 2}
     assert everywhere["max_tile_bytes_gzip"] == {"0": len(TILE_A), "1": len(TILE_B)}
     assert everywhere["max_tile_bytes_raw"] == {"0": len(b"tile-a"), "1": len(b"tile-b-different")}
-    assert everywhere["first_screen_z4_z6_bytes"] == 0  # у архіві немає тайлів z4-z6
+    assert everywhere["first_screen_z3_z6_bytes"] == 0  # у архіві немає тайлів z3-z6
 
     deep = tmp_path / "deep.pmtiles"
     header = {"version": 3, "tile_compression": Compression.GZIP, "tile_type": TileType.MVT}
     with write(deep) as writer:
         writer.write_tile(zxy_to_tileid(4, 9, 5), TILE_A)  # у межах України
+        writer.write_tile(zxy_to_tileid(3, 4, 2), TILE_B)  # z3, у межах України — теж у бюджеті
         writer.write_tile(zxy_to_tileid(4, 0, 0), TILE_B)  # поза екстентом
         writer.finalize(header, {})
     stats = tile_stats(deep, (22.0, 44.0, 40.0, 52.5))
-    assert stats["first_screen_z4_z6_bytes"] == len(TILE_A)
+    assert stats["first_screen_z3_z6_bytes"] == len(TILE_A) + len(TILE_B)
 
 
 def test_attribution_names_all_sources() -> None:
@@ -155,7 +156,7 @@ def test_run_tippecanoe_builds_the_command(monkeypatch: pytest.MonkeyPatch, tmp_
     mounts = seen["mounts"]
     assert isinstance(args, list) and isinstance(mounts, dict)
     assert args[0] == "tippecanoe"
-    assert {"-Z4", "-z12", "--force", "--read-parallel"} <= set(args)
+    assert {"-Z3", "-z12", "--force", "--read-parallel"} <= set(args)
     assert "--name=ukraine" in args and "--description=ukraine" in args  # без шляхів контейнера в метаданих
     assert "--no-feature-limit" not in args and "--no-tile-size-limit" not in args
     assert args[args.index("-o") + 1].endswith("atlas.pmtiles")
@@ -175,7 +176,7 @@ def test_run_tippecanoe_writes_pmtiles_with_the_layers(tmp_path: Path) -> None:
         "type": "Feature",
         "properties": {"id": "ua:x", "name:uk": "Тест", "kind": "city", "rank": 0},
         "geometry": {"type": "Point", "coordinates": [30.5, 50.4]},
-        "tippecanoe": {"layer": "place", "minzoom": 4, "maxzoom": 12},
+        "tippecanoe": {"layer": "place", "minzoom": 3, "maxzoom": 12},
     }
     (layers_dir / "place.geojsonl").write_text(json.dumps(feature, ensure_ascii=False) + "\n", encoding="utf-8")
     out = tmp_path / "out.pmtiles"

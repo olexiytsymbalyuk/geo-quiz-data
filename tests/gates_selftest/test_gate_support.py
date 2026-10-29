@@ -139,7 +139,7 @@ def test_gazetteer_exonym_check_looks_at_aliases_and_former() -> None:
 # --- вибірка тайлів і геометрія -------------------------------------------------------------------------------
 
 def test_select_tiles_takes_all_low_zoom_border_zone_and_a_fixed_share_of_the_rest() -> None:
-    low = {(z, x, 0) for z in range(4, 9) for x in range(5)}
+    low = {(z, x, 0) for z in range(3, 9) for x in range(5)}
     crimea = tile_xy(34.0, 45.0, 11)
     inland = {(11, 1000 + i, 500) for i in range(2000)}  # далеко від прикордоння
     refs = low | {(11, *crimea)} | inland

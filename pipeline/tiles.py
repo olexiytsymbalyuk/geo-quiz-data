@@ -15,20 +15,21 @@ from pmtiles.writer import write
 
 from pipeline.tools import ToolRun, ensure_image, run_tool
 
-MIN_ZOOM = 4
+# z3: у MapLibre зум рахується від світу 512 px, і лише з z3 уся Україна (≈ 414×276 px на z4) вміщується в екран телефона 360 px.
+MIN_ZOOM = 3
 MAX_ZOOM = 12
 TILESET_NAME = "ukraine"  # ідентифікатор охоплення; без шляхів контейнера в метаданих
 ATTRIBUTION = (
     "© учасники OpenStreetMap (ODbL); КАТОТТГ, Мінрозвитку (CC BY 4.0); Natural Earth (суспільне надбання); "
     "Wikidata (CC0)"
 )
-FIRST_SCREEN_MAX_ZOOM = 6  # бюджет першого екрана мапи — тайли z4–z6 екстенту України
+FIRST_SCREEN_MAX_ZOOM = 6  # бюджет першого екрана мапи — тайли z3–z6 екстенту України
 _LAYERS_MOUNT = "/layers"
 _OUT_MOUNT = "/out"
 
 
 def run_tippecanoe(layers: Mapping[str, Path], out: Path) -> ToolRun:
-    """Збирає `.pmtiles` з файлів шарів: `-Z4 -z12`, `-L <шар>:<файл>` на кожен, `--attribution`.
+    """Збирає `.pmtiles` з файлів шарів: `-Z3 -z12`, `-L <шар>:<файл>` на кожен, `--attribution`.
 
     Усі файли шарів лежать в одній теці — вона монтується в контейнер; вихідна тека — теж.
     Прапорів послаблення лімітів немає: вони додаються лише за виміром (див. звіт Завдання 11).
@@ -80,7 +81,7 @@ def stamp_metadata(src: Path, dst: Path, extra: Mapping[str, str]) -> None:
 
 
 def tile_stats(pmtiles_path: Path, bounds: tuple[float, float, float, float]) -> dict[str, Any]:
-    """Розміри тайлів за зумами (стиснені, як віддає сервер) і бюджет першого екрана z4–z6 для екстенту України."""
+    """Розміри тайлів за зумами (стиснені, як віддає сервер) і бюджет першого екрана z3–z6 для екстенту України."""
     min_x, min_y, max_x, max_y = bounds
 
     def tile_range(zoom: int) -> tuple[range, range]:
@@ -107,5 +108,5 @@ def tile_stats(pmtiles_path: Path, bounds: tuple[float, float, float, float]) ->
         "tiles_by_zoom": {str(z): len(sizes) for z, sizes in sorted(by_zoom.items())},
         "max_tile_bytes_gzip": {str(z): max(sizes) for z, sizes in sorted(by_zoom.items())},
         "max_tile_bytes_raw": {str(z): max(sizes) for z, sizes in sorted(raw_by_zoom.items())},
-        "first_screen_z4_z6_bytes": first_screen,
+        "first_screen_z3_z6_bytes": first_screen,
     }
