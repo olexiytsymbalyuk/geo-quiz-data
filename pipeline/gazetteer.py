@@ -22,7 +22,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from shapely import contains_xy, prepare
 from shapely.geometry import shape
+from shapely.geometry.base import BaseGeometry
 
 from pipeline.geo_types import as_multipolygon
 from pipeline.katottg import KatottgUnit
@@ -541,6 +543,29 @@ def build_gazetteer(
     entities += _piece_entities(_group_pieces(_peak_pieces(osm_peaks, metrics)), guard, version, metrics, with_geom_ref=False)
     _check_unique(entities)
     return GazetteerResult(entities, _final_metrics(entities, metrics), startable, version)
+
+
+def drop_peaks_outside(result: GazetteerResult, outline: BaseGeometry) -> GazetteerResult:
+    """Газетир без вершин поза контуром України (як вода в шарах); кількість відкинутих -- метрика `peak_outside`.
+
+    Вершини з буфера витягу Geofabrik, що лежать за межею контуру (зазвичай у межах кількох км -- генералізація
+    кордону), не належать атласові. Вхідний результат не змінюється.
+    """
+    prepare(outline)
+    peaks = [e for e in result.entities if e.type == "peak"]
+    outside = {
+        e.id
+        for e in peaks
+        if e.lat is not None and e.lon is not None and not contains_xy(outline, e.lon, e.lat)
+    }
+    kept = [e for e in result.entities if e.id not in outside]
+    metrics = {
+        **result.metrics,
+        "peak_outside": len(outside),
+        "entities": len(kept),
+        "entities_by_type": dict(sorted(Counter(e.type for e in kept).items())),
+    }
+    return dataclasses.replace(result, entities=kept, metrics=metrics)
 
 
 _COUNTER_KEYS = (

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import logging
 from pathlib import Path
 
@@ -84,3 +86,11 @@ def test_build_clears_stale_partial_from_previous_failure(tmp_path: Path, monkey
     final = build(VERSION, dist_root=tmp_path)
 
     assert not (final / "stale.txt").exists()
+
+
+def test_produce_clips_peaks_by_the_outline_before_layers_and_files() -> None:
+    """Вершини відкидаються тим самим контуром, що й вода, до шарів і до файлів газетира (метрика `peak_outside`)."""
+    source = inspect.getsource(build_module._produce)
+    clip = source.index("drop_peaks_outside(gazetteer, outline)")
+    assert clip < source.index("build_layers(")
+    assert clip < source.index("_gazetteer_files(")

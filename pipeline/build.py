@@ -21,7 +21,7 @@ from shapely.ops import unary_union
 
 from pipeline.extract import extract
 from pipeline.fetch import LOCK, SOURCES, fetch_all
-from pipeline.gazetteer import GazetteerResult, build_from_cache, build_report, read_layer
+from pipeline.gazetteer import GazetteerResult, build_from_cache, build_report, drop_peaks_outside, read_layer
 from pipeline.gazetteer_io import write_scope_json, write_sqlite
 from pipeline.katottg import KatottgUnit, parse_katottg
 from pipeline.layers import KYIV_CODE, SEVASTOPOL_CODE, build_layers, load_admin_polygons
@@ -81,6 +81,7 @@ def _produce(partial: Path, version: str) -> None:
         bbox = (min_x - _BBOX_MARGIN_DEG, min_y - _BBOX_MARGIN_DEG, max_x + _BBOX_MARGIN_DEG, max_y + _BBOX_MARGIN_DEG)
         outline = build_outline(land_polygons, load_land_mask(paths["land_polygons"], bbox))
         border = state_border(outline, admin_union)
+        gazetteer = drop_peaks_outside(gazetteer, outline)  # вершини з буфера витягу, що лежать поза контуром
 
     ne_shp = paths["ne_admin0_ukr"]
     with rec.step("neutral"):

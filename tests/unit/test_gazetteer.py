@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import shapely.geometry
 
 from pipeline.gazetteer import (
     CAPITAL_OVERRIDES,
@@ -16,6 +17,8 @@ from pipeline.gazetteer import (
     GazetteerError,
     GazetteerResult,
     build_gazetteer,
+    build_report,
+    drop_peaks_outside,
     effective_chain_tier,
     resolve_capitals,
     water_entity_id,
@@ -431,6 +434,34 @@ def test_blocked_sentinel_in_water_name_fails() -> None:
         build(water=[line(78, POLICY.blocked_sentinel.upper(), waterway="river")])
     assert "osm:w78" in str(err.value)
     assert POLICY.blocked_sentinel not in str(err.value).lower()
+
+
+def test_peaks_outside_the_outline_are_dropped_and_counted() -> None:
+    inside, outside = peak(1, "Всередині", ele="100"), peak(2, "Поза контуром", ele="200")
+    for feature, lon in ((inside, 33.0), (outside, 40.0)):
+        feature["geometry"] = {"type": "Point", "coordinates": [lon, 49.0]}
+    result = build(units=UNITS, places=[pt(11, SEL, "town", 33.5, 49.5)], peaks=[inside, outside])
+    outline = shapely.geometry.MultiPolygon([shapely.geometry.box(30.0, 45.0, 36.0, 52.0)])
+
+    clipped = drop_peaks_outside(result, outline)
+
+    peaks = [e for e in clipped.entities if e.type == "peak"]
+    assert [e.names["uk"] for e in peaks] == ["Всередині"]
+    assert clipped.metrics["peak_outside"] == 1
+    assert clipped.metrics["entities"] == len(result.entities) - 1
+    assert clipped.metrics["entities_by_type"]["peak"] == 1
+    assert len(result.entities) == len(clipped.entities) + 1  # вхідний результат не змінено
+    assert build_report(clipped)["peak_outside"] == 1
+
+
+def test_peaks_inside_the_outline_are_kept_with_zero_outside_count() -> None:
+    result = build(peaks=[peak(1, "Говерла", ele="2061")])
+    outline = shapely.geometry.MultiPolygon([shapely.geometry.box(-180.0, -90.0, 180.0, 90.0)])
+
+    clipped = drop_peaks_outside(result, outline)
+
+    assert [e.type for e in clipped.entities] == [e.type for e in result.entities]
+    assert clipped.metrics["peak_outside"] == 0
 
 
 def test_blocked_sentinel_in_katottg_or_peak_name_fails() -> None:
