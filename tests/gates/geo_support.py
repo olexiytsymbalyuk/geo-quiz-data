@@ -159,9 +159,10 @@ def land_mask_metric(zip_path: Path, bbox: Bbox) -> BaseGeometry:
 
 CRIMEA_BBOX: Bbox = (32.4, 44.3, 36.7, 46.3)
 FINEST_ZOOM = 12
-# Маска в bbox захоплює Таманський півострів (Росія, схід від Керченської протоки): зона перевірки — NE-Україна,
-# розширена на цей буфер. Найближча чужа суша (коса Чушка) за ≥ 4,5 км від берега Криму.
-COUNTRY_MARGIN_M = 2000.0
+# Опорні точки, що мають лежати в перевірюваній зоні: острів Тузла, Перекоп, Арабатська стрілка (звужена коса,
+# 34.943 E / 45.8 N: точка 35.2 / 45.6 з рецензії лежить у Сиваші за 5,7 км від суші маски).
+CRIMEA_ANCHORS: tuple[tuple[float, float], ...] = ((36.547, 45.271), (33.78, 46.15), (34.943, 45.8))
+ANCHOR_TOLERANCE_M = 250.0
 COAST_BUFFER_M = 50.0
 MAX_UNCOVERED_KM2 = 0.1
 _M2_PER_KM2 = 1_000_000.0
@@ -171,28 +172,61 @@ def _components(geometry: BaseGeometry) -> list[BaseGeometry]:
     return [g for g in getattr(geometry, "geoms", [geometry]) if not g.is_empty]
 
 
-def land_gaps(land: BaseGeometry, mask: BaseGeometry, home: BaseGeometry) -> tuple[float, float]:
+def ne_union(ne_shp: Path, bbox: Bbox, isos: Iterable[str]) -> BaseGeometry:
+    """Об'єднання NE-полігонів країн за `ISO_A2_EH` у bbox (метри)."""
+    wanted = frozenset(isos)
+    window = box(*bbox)
+    parts: list[BaseGeometry] = []
+    with shapefile.Reader(str(ne_shp), encoding="utf-8") as reader:
+        for item in reader.iterShapeRecords(fields=[NE_ISO_FIELD], bbox=bbox):
+            if item.shape is not None and item.shape.shapeType != shapefile.NULL and item.record[NE_ISO_FIELD] in wanted:
+                parts.append(shape(item.shape.__geo_interface__).intersection(window))
+    return _metric_union([p for p in parts if not p.is_empty])
+
+
+def checked_zone(mask: BaseGeometry, foreign: BaseGeometry) -> BaseGeometry:
+    """Маска суші без зв'язних компонент, що перетинають NE-полігон нейтральної країни (Тамань і коса Чушка).
+
+    Острови й усе інше лишаються в перевірці незалежно від того, кому їх віддає NE.
+    """
+    kept = [part for part in _components(mask) if not part.intersects(foreign)]
+    return unary_union(kept) if kept else shapely.GeometryCollection()
+
+
+def land_gaps(land: BaseGeometry, zone: BaseGeometry) -> tuple[float, float]:
     """(непокрита площа, км²; найбільша зв'язна непокрита компонента після внутрішнього берегового буфера, км²).
 
-    Непокрите = маска суші в зоні перевірки мінус шар `land`. Перший вимір — без жодних поблажок; у другому береги
+    Непокрите = перевірювана зона маски суші мінус шар `land`. Перший вимір — без жодних поблажок; у другому береги
     стискаються на `COAST_BUFFER_M` і назад: спрощення берега в тайлах лишає тисячі субметрових шматків уздовж
     узбережжя, а реальна «дірка» цим не зникає.
     """
-    uncovered = mask.intersection(home.buffer(COUNTRY_MARGIN_M)).difference(land)
+    uncovered = zone.difference(land)
     total_km2 = uncovered.area / _M2_PER_KM2
     core = uncovered.buffer(-COAST_BUFFER_M)
     largest_m2 = max((part.buffer(COAST_BUFFER_M).area for part in _components(core)), default=0.0)
     return total_km2, largest_m2 / _M2_PER_KM2
 
 
-def crimea_land_gaps(tileset: TileSet, zip_path: Path, ne_shp: Path) -> tuple[float, float, int]:
-    """(`land_gaps` для Криму, кількість тайлів `land`, що перевірялися)."""
+def anchors_outside(zone: BaseGeometry) -> int:
+    """Скільки опорних точок (`CRIMEA_ANCHORS`) лежить далі за `ANCHOR_TOLERANCE_M` від перевірюваної зони."""
+    lon = np.array([p[0] for p in CRIMEA_ANCHORS])
+    lat = np.array([p[1] for p in CRIMEA_ANCHORS])
+    x, y = to_metric(lon, lat)
+    return int(sum(zone.distance(shapely.Point(px, py)) > ANCHOR_TOLERANCE_M for px, py in zip(x, y, strict=True)))
+
+
+def crimea_land_gaps(
+    tileset: TileSet, zip_path: Path, ne_shp: Path, neutral_isos: Iterable[str]
+) -> tuple[float, float, int, int]:
+    """(непокрито км², найбільша компонента км², тайлів `land`, опорних точок поза зоною)."""
     wanted = tiles_covering(FINEST_ZOOM, CRIMEA_BBOX)
     parts = [geometry for _, geometry, _ in layer_features(tileset, "land", FINEST_ZOOM, wanted)]
-    home, _ = ne_countries(ne_shp, CRIMEA_BBOX)
     land = unary_union(parts) if parts else shapely.GeometryCollection()
-    total, largest = land_gaps(land, land_mask_metric(zip_path, CRIMEA_BBOX), home)
-    return total, largest, len(parts)
+    mask = land_mask_metric(zip_path, CRIMEA_BBOX)
+    assert not mask.is_empty, "маска суші в bbox Криму порожня — перевірка була б порожньою"
+    zone = checked_zone(mask, ne_union(ne_shp, CRIMEA_BBOX, neutral_isos))
+    total, largest = land_gaps(land, zone)
+    return total, largest, len(parts), anchors_outside(zone)
 
 
 # --- Перекоп ---------------------------------------------------------------------------------------------------
@@ -222,7 +256,7 @@ HOLE_MAX_KM2 = 0.001  # дірки основного полігона менш�
 ISLAND_MAX_KM2 = 500.0  # «острів» — частина контуру, що не торкається сусідів; Крим (≈ 27 000 км²) островом не є
 MIN_GAP_M = 25.0  # коротші шматки — числовий пил
 LAND_SHARE_MIN = 0.5  # частка сусідньої сторони, що має бути сушею OSM, щоб розрив вважався розривом кордону
-SAMPLE_STEP_M = 500.0
+SAMPLE_STEP_M = 250.0
 NE_LAND_BORDER_MARGIN_M = 1000.0
 MAX_DEVIATION_KM = 2.0
 _M_PER_KM = 1000.0
@@ -281,17 +315,24 @@ def border_gaps(
         side = piece.buffer(NEIGHBOUR_TOUCH_M).intersection(neighbours)
         if side.is_empty:
             continue
-        on_land = side.intersection(mask_for(lonlat_bounds(piece, NEIGHBOUR_TOUCH_M * 2))).area
+        mask = mask_for(lonlat_bounds(piece, NEIGHBOUR_TOUCH_M * 2))
+        assert not mask.is_empty, "маска суші порожня в зоні розриву — розрив не відрізнити від берега"
+        on_land = side.intersection(mask).area
         if on_land / side.area >= LAND_SHARE_MIN:
             found.append(f"ділянка кордону №{index}: розрив level=0 завдовжки {piece.length:.0f} м")
     return found
 
 
 def _points(geometry: BaseGeometry) -> shapely.Geometry:
-    """Точки вздовж ліній не рідше ніж через `SAMPLE_STEP_M`."""
-    if geometry.is_empty:
+    """Точки вздовж ліній із фіксованим кроком `SAMPLE_STEP_M` (від початку кожної лінії та її кінець): вага — довжина."""
+    lines = [part for part in shapely.get_parts(geometry) if part.geom_type in ("LineString", "LinearRing") and part.length > 0]
+    if not lines:
         return shapely.points(np.empty((0, 2)))
-    return shapely.points(shapely.get_coordinates(shapely.segmentize(geometry, SAMPLE_STEP_M)))
+    chunks = []
+    for line in lines:
+        distances = np.append(np.arange(0.0, line.length, SAMPLE_STEP_M), line.length)
+        chunks.append(shapely.line_interpolate_point(line, distances))
+    return np.concatenate(chunks)
 
 
 def _stats_km(distances: npt.NDArray[np.float64]) -> dict[str, float]:

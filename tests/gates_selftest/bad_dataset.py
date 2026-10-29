@@ -35,6 +35,7 @@ VIOLATIONS: dict[str, str] = {
     "sources_mismatch": "test_manifest.py::test_manifest_sources_match_lock",
     "crimea_country_ru": "test_crimea_is_ukraine.py::test_crimean_entities_are_ukrainian",
     "crimea_land_hole": "test_crimea_is_ukraine.py::test_land_layer_covers_crimea",
+    "crimea_island_hole": "test_crimea_is_ukraine.py::test_land_layer_covers_crimea",
     "perekop_border_line": "test_crimea_is_ukraine.py::test_no_state_border_through_perekop",
     "katottg_name_differs": "test_occupied_uses_katottg.py::test_names_equal_katottg",
     "old_name_in_tiles": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
@@ -101,7 +102,13 @@ def _geo_tiles(violation: str | None) -> dict[tuple[int, int, int], list[dict[st
     if violation == "perekop_border_line":
         perekop.append({"geometry": _line(0, 1500, EXTENT, 1500), "properties": {"level": 0}})
     crimea_hole = CRIMEA_HOLE if violation == "crimea_land_hole" else None
+    island_hole = CRIMEA_HOLE if violation == "crimea_island_hole" else None  # Тузла лежить поза NE-Україною + 2 км
+    anchors = {
+        tile: [{"name": "land", "features": [{"geometry": _polygon_with_hole((0, 0, EXTENT, EXTENT), island_hole if tile == tiny_world.TUZLA_TILE else None), "properties": {}}]}]
+        for tile in tiny_world.ANCHOR_TILES
+    }
     return {
+        **anchors,
         tiny_world.CRIMEA_TILE: [{"name": "land", "features": [{"geometry": _polygon_with_hole((0, 0, EXTENT, EXTENT), crimea_hole), "properties": {}}]}],
         tiny_world.BORDER_TILE: [
             {"name": "landmass", "features": [{"geometry": _box(0, 0, edge, EXTENT), "properties": {"class": "neutral"}}]},

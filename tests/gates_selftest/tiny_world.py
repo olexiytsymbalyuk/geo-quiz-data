@@ -23,7 +23,7 @@ from pipeline.gazetteer import SCOPE, TIERS, Entity, GazetteerResult, effective_
 from pipeline.gazetteer_io import write_sqlite
 from pipeline.letters import ALPHABET, chain_letter, compute_startable
 from pipeline.policy import load_policy
-from tests.gates.geo_support import tile_to_lonlat
+from tests.gates.geo_support import CRIMEA_ANCHORS, FINEST_ZOOM, tile_to_lonlat, tiles_covering
 
 EXTENT = 4096
 ARK_NAME = "Автономна Республіка Крим"
@@ -44,8 +44,19 @@ MASK_FILE = ("land_polygons", "land-polygons-split-4326.zip")
 # Зона перевірки Криму й межа з сусідом — тайли z12; прямокутники в тайлових одиницях (extent 4096).
 CRIMEA_TILE = (12, 2434, 1473)
 BORDER_TILE = (12, 2321, 1389)
+TAMAN_POINT = (36.66, 45.2)  # «чужа» суша в bbox Криму: компонента маски, що перетинає NE-Росію
 BORDER_EDGE_X = 2048
 NE_EDGE_SHIFT = 1900  # зсув межі в еталоні NE у «поганому» світі: ≈ 2,9 км на широті 50°
+
+
+def point_tile(lon: float, lat: float) -> tuple[int, int, int]:
+    (tile,) = tiles_covering(FINEST_ZOOM, (lon, lat, lon, lat))
+    return tile
+
+
+ANCHOR_TILES = tuple(point_tile(lon, lat) for lon, lat in CRIMEA_ANCHORS)  # Тузла, Перекоп, Арабатська стрілка
+TUZLA_TILE = ANCHOR_TILES[0]
+TAMAN_TILE = point_tile(*TAMAN_POINT)
 
 
 def _code(prefix: int, serial: int) -> str:
@@ -242,6 +253,7 @@ def ne_polygons(shift_units: int) -> list[tuple[str, Polygon]]:
         ("UA", tile_rectangle(CRIMEA_TILE, 0, 0, EXTENT, EXTENT)),
         ("UA", tile_rectangle(BORDER_TILE, edge, 0, EXTENT, EXTENT)),
         ("PL", tile_rectangle(BORDER_TILE, 0, 0, edge, EXTENT)),
+        ("RU", tile_rectangle(TAMAN_TILE, 0, 0, EXTENT, EXTENT)),
     ]
 
 
@@ -256,8 +268,9 @@ def write_natural_earth(raw: Path, shift_units: int = 0) -> None:
 
 
 def land_mask_polygons() -> list[Polygon]:
-    """Маска суші: тайл Криму й увесь тайл межі (з обох боків від кордону)."""
-    return [box(*tile_rectangle(CRIMEA_TILE, 0, 0, EXTENT, EXTENT).bounds), box(*tile_rectangle(BORDER_TILE, 0, 0, EXTENT, EXTENT).bounds)]
+    """Маска суші: тайл Криму, тайли-якорі (острів Тузла поза NE-Україною), тайл «Тамані» (без `land`) і тайл межі."""
+    tiles = [CRIMEA_TILE, BORDER_TILE, TAMAN_TILE, *ANCHOR_TILES]
+    return [box(*tile_rectangle(tile, 0, 0, EXTENT, EXTENT).bounds) for tile in tiles]
 
 
 def write_land_mask(raw: Path) -> None:

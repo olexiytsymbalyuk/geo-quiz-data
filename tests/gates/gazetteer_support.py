@@ -26,10 +26,8 @@ CRIMEA_CODE_PREFIXES = ("UA01", "UA85")
 K_CODE_PREFIXES = ("UA80", "UA85")
 ARK_CODE_PREFIX = "UA01"
 SOFT_SIGN = chr(0x044C)
-RENAME_LAYERS = frozenset({"place", "admin"})
-# Однойменні села й селища (не перейменовані) легітимні: у КАТОТТГ «Красний Лиман», «Красний Луч», «Ватутіне», «Южне»
-# лишаються назвами сіл. Перейменовані пункти з `renames_check` — міста, тож стара назва заборонена для решти типів.
-NAMESAKE_TYPES = frozenset({"selo", "selyshche"})
+# Старшинство типів, з яких береться тип перейменованої сутності (серед однойменних пунктів із назвою `new`).
+RENAMED_TYPE_RANK = ("city", "selyshche", "selo")
 
 # Додаток Б: 27 одиниць O/K, 136 районів, 1 469 громад (без Криму), 463 міста; допуск ± 2.
 EXPECTED_COUNTS: Mapping[str, int] = {"oblast_plus_k": 27, "raion": 136, "hromada": 1469, "city": 463}
@@ -99,31 +97,48 @@ def katottg_name_violations(gazetteer: Gazetteer, units: Iterable[KatottgUnit]) 
     return found, checked
 
 
-def rename_violations(renames: Sequence[Rename], gazetteer: Gazetteer, tile_features: Iterable[TileFeature]) -> list[str]:
-    """Нова назва є в газетирі; стара не є канонічною назвою сутності й не трапляється як `name:uk` у шарах place/admin.
+def _primary_type(holders: Sequence[Mapping[str, Any]]) -> str:
+    """Тип перейменованої сутності: найстаршого рангу серед сутностей, канонічна назва яких дорівнює `new`."""
+    types = {holder["type"] for holder in holders}
+    return next((kind for kind in RENAMED_TYPE_RANK if kind in types), sorted(types)[0])
 
-    Відхилення від брифу: сутності типів `selo` і `selyshche` (та підписи `place` з `kind` село/селище) не рахуються:
-    це однойменні неперейменовані пункти, назви яких слово в слово взяті з КАТОТТГ.
+
+def rename_violations(renames: Sequence[Rename], gazetteer: Gazetteer, tile_features: Iterable[TileFeature]) -> list[str]:
+    """Нова назва є в газетирі; стара не є назвою сутності того самого типу й не трапляється як `name:uk` у тайлах.
+
+    Відхилення від брифу («стара не є канонічною назвою жодної сутності»): у КАТОТТГ лишаються однойменні
+    неперейменовані пункти іншого типу (села «Красний Лиман», «Красний Луч», «Ватутіне», «Южне»). Тип перейменованої
+    сутності береться з сутності з назвою `new`; сутності інших типів отримують виняток, лише якщо мають код КАТОТТГ.
+    Фіча тайла (будь-який шар із `name:uk`) отримує виняток, лише якщо її `id` веде до такої сутності газетира.
     """
-    all_names = {uk_name(row) for row in gazetteer.entities}
-    canonical = {uk_name(row) for row in gazetteer.entities if row["type"] not in NAMESAKE_TYPES}
-    old_in_tiles: dict[str, list[str]] = {}
+    rows = gazetteer.entities
+    holders: dict[str, list[Mapping[str, Any]]] = {}
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for row in rows:
+        holders.setdefault(uk_name(row), []).append(row)
+        by_id[row["id"]] = row
+    old_in_tiles: dict[str, list[TileFeature]] = {}
     wanted_old = {rename.old for rename in renames}
     for feature in tile_features:
         name = feature.properties.get("name:uk")
-        if feature.layer not in RENAME_LAYERS or not isinstance(name, str) or name not in wanted_old:
-            continue
-        if feature.layer == "place" and feature.properties.get("kind") in NAMESAKE_TYPES:
-            continue
-        old_in_tiles.setdefault(name, []).append(feature.where())
+        if isinstance(name, str) and name in wanted_old:
+            old_in_tiles.setdefault(name, []).append(feature)
     found: list[str] = []
     for number, rename in enumerate(renames, start=1):
-        if rename.new not in all_names:
+        new_holders = holders.get(rename.new, [])
+        if not new_holders:
             found.append(f"перейменування №{number}: нової назви немає в газетирі")
-        if rename.old in canonical:
-            found.append(f"перейменування №{number}: стара назва є канонічною назвою сутності")
-        if rename.old in old_in_tiles:
-            found.append(f"перейменування №{number}: стара назва в тайлах {old_in_tiles[rename.old][0]}")
+        renamed_type = _primary_type(new_holders) if new_holders else None
+
+        def excused(row: Mapping[str, Any] | None, renamed_type: str | None = renamed_type) -> bool:
+            return row is not None and renamed_type is not None and row["type"] != renamed_type and bool(_code(row))
+
+        if any(not excused(row) for row in holders.get(rename.old, [])):
+            found.append(f"перейменування №{number}: стара назва є назвою сутності того самого типу")
+        for feature in old_in_tiles.get(rename.old, []):
+            if not excused(by_id.get(feature.properties.get("id"))):
+                found.append(f"перейменування №{number}: стара назва в тайлах {feature.where()}")
+                break
     return found
 
 

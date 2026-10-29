@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
-from shapely.geometry import LineString, box
+from shapely.geometry import LineString, Polygon, box
 
 from pipeline.policy import Rename
 from tests.gates import gazetteer_support as gz
@@ -71,24 +72,44 @@ def feature(layer: str, **props: Any) -> TileFeature:
     return TileFeature(10, 1, 2, layer, 0, props)
 
 
-RENAME = Rename("Артемівськ", "Бахмут", "2016-02-04", "тест")
+RENAME = Rename("Староград", "Новоград", "2016-02-04", "тест")
 
 
-def test_rename_check_ignores_namesake_villages_and_flags_old_cities() -> None:
-    clean = gazetteer([row("ua:a", "city", "Бахмут"), row("ua:b", "selo", "Артемівськ")])
-    village = [feature("place", **{"name:uk": "Артемівськ", "kind": "selo"})]
-    assert gz.rename_violations([RENAME], clean, village) == []
+def test_rename_check_excuses_a_coded_namesake_of_another_type_and_its_tile_label() -> None:
+    rows = [row("ua:a", "city", "Новоград", code="UA01000000000000001"), row("ua:b", "selo", "Староград", code="UA01000000000000002")]
+    village_label = [feature("place", **{"name:uk": "Староград", "id": "ua:b", "kind": "city"})]  # kind не має значення
 
-    city_tile = [feature("place", **{"name:uk": "Артемівськ", "kind": "city", "id": "ua:x"})]
-    assert len(gz.rename_violations([RENAME], clean, city_tile)) == 1
-    old_city = gazetteer([row("ua:a", "city", "Бахмут"), row("ua:b", "city", "Артемівськ")])
-    assert len(gz.rename_violations([RENAME], old_city, [])) == 1
+    assert gz.rename_violations([RENAME], gazetteer(rows), village_label) == []
 
 
-def test_rename_check_flags_a_missing_new_name_and_old_names_in_admin_layer() -> None:
-    no_new = gazetteer([row("ua:a", "city", "Інше")])
+def test_rename_check_flags_an_old_name_held_by_another_entity_of_the_renamed_type() -> None:
+    renamed_village = [
+        row("ua:a", "selo", "Новоград", code="UA01000000000000001"),
+        row("ua:b", "selo", "Староград", code="UA01000000000000002"),
+    ]
+    old_city = [row("ua:a", "city", "Новоград", code="UA01000000000000001"), row("ua:c", "city", "Староград", code="UA01000000000000003")]
 
-    assert len(gz.rename_violations([RENAME], no_new, [feature("admin", **{"name:uk": "Артемівськ"})])) == 2
+    assert len(gz.rename_violations([RENAME], gazetteer(renamed_village), [])) == 1
+    assert len(gz.rename_violations([RENAME], gazetteer(old_city), [])) == 1
+
+
+def test_rename_check_gives_no_excuse_without_a_katottg_code_or_a_matching_entity_id() -> None:
+    uncoded = [row("ua:a", "city", "Новоград", code="UA01000000000000001"), row("wd:Q1", "lake", "Староград")]
+    clean = gazetteer([row("ua:a", "city", "Новоград", code="UA01000000000000001")])
+
+    assert len(gz.rename_violations([RENAME], gazetteer(uncoded), [])) == 1
+    assert len(gz.rename_violations([RENAME], clean, [feature("place", **{"name:uk": "Староград", "id": "ua:zzz"})])) == 1
+
+
+@pytest.mark.parametrize("layer", ["place", "admin", "country", "water", "waterway", "peak"])
+def test_rename_check_looks_for_the_old_name_in_every_layer_with_names(layer: str) -> None:
+    clean = gazetteer([row("ua:a", "city", "Новоград", code="UA01000000000000001")])
+
+    assert len(gz.rename_violations([RENAME], clean, [feature(layer, **{"name:uk": "Староград"})])) == 1
+
+
+def test_rename_check_flags_a_missing_new_name() -> None:
+    assert len(gz.rename_violations([RENAME], gazetteer([row("ua:a", "city", "Інше")]), [])) == 1
 
 
 # --- лічильники й літери -----------------------------------------------------------------------------------------------
@@ -138,18 +159,30 @@ def test_chain_letter_check_reports_a_tier_without_any_pool() -> None:
 def test_land_gaps_ignore_coast_slivers_but_catch_a_hole() -> None:
     mask = box(0, 0, 10 * KM, 10 * KM)
     land = box(0, 0, 10 * KM, 10 * KM - 20)  # смужка 20 м уздовж берега: спрощення берега
-    total, largest = geo.land_gaps(land, mask, mask)
+    total, largest = geo.land_gaps(land, mask)
     assert total == pytest.approx(0.2, abs=0.01) and largest == 0.0
 
     holed = land.difference(box(4 * KM, 4 * KM, 6 * KM, 6 * KM))
-    assert geo.land_gaps(holed, mask, mask)[1] == pytest.approx(4.0, abs=0.05)
+    assert geo.land_gaps(holed, mask)[1] == pytest.approx(4.0, abs=0.05)
 
 
-def test_land_gaps_ignore_foreign_land_beyond_the_country_margin() -> None:
-    mask = box(0, 0, 10 * KM, 10 * KM).union(box(20 * KM, 0, 30 * KM, 10 * KM))
-    land = box(0, 0, 10 * KM, 10 * KM)
+def test_checked_zone_drops_only_components_touching_a_neutral_country() -> None:
+    taman = box(20 * KM, 0, 30 * KM, 10 * KM)
+    island = box(40 * KM, 0, 41 * KM, 1 * KM)  # острів, якого NE-Україна не містить, лишається в перевірці
+    mainland = box(0, 0, 10 * KM, 10 * KM)
+    foreign = box(25 * KM, 5 * KM, 35 * KM, 15 * KM)
 
-    assert geo.land_gaps(land, mask, land)[0] == 0.0
+    zone = geo.checked_zone(mainland.union(taman).union(island), foreign)
+
+    assert zone.equals(mainland.union(island))
+
+
+def test_anchors_outside_counts_points_far_from_the_zone() -> None:
+    lon, lat = geo.CRIMEA_ANCHORS[0]
+    x, y = geo.to_metric(np.array([lon]), np.array([lat]))
+    near = box(x[0] - 100, y[0] - 100, x[0] + 100, y[0] + 100)
+
+    assert geo.anchors_outside(near) == len(geo.CRIMEA_ANCHORS) - 1
 
 
 NEIGHBOURS = box(-10 * KM, 0, 0, 10 * KM)
@@ -186,6 +219,25 @@ def test_border_gaps_separate_a_real_gap_from_a_coast_next_to_sea_overlap() -> N
     assert len(geo.border_gaps(LAND, NEIGHBOURS, border, everywhere_land)) == 1
     assert geo.border_gaps(LAND, NEIGHBOURS, border, sea_beside_land) == []
     assert geo.border_gaps(LAND, NEIGHBOURS, LineString([(0, 0), (0, 10 * KM)]), everywhere_land) == []
+
+
+def test_border_deviation_weights_points_by_length_not_by_vertices() -> None:
+    ne_home = box(1 * KM, 0, 10 * KM, 10 * KM)  # NE на 1 км східніше
+    ne_neighbours = box(-10 * KM, 0, 1 * KM, 10 * KM)
+    dense = LineString([(0, y) for y in range(0, 10001, 10)])  # тисяча вершин на кілометр: вершини не мусять переважувати
+
+    sparse_report = geo.border_deviation(LineString([(0, 0), (0, 10 * KM)]), NEIGHBOURS, ne_home, ne_neighbours)
+    dense_report = geo.border_deviation(dense, NEIGHBOURS, ne_home, ne_neighbours)
+
+    assert dense_report["level0_to_ne"]["points"] == sparse_report["level0_to_ne"]["points"]
+    assert dense_report["level0_to_ne"]["p50"] == pytest.approx(1.0, abs=0.01)
+
+
+def test_border_gaps_refuse_an_empty_mask_instead_of_calling_a_gap_coast() -> None:
+    border = LineString([(0, 0), (0, 4 * KM)])
+
+    with pytest.raises(AssertionError):
+        geo.border_gaps(LAND, NEIGHBOURS, border, lambda _: Polygon())
 
 
 def test_border_deviation_reports_both_directions_and_the_threshold() -> None:
