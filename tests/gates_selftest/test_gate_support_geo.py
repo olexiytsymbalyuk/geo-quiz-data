@@ -249,8 +249,39 @@ def test_border_deviation_reports_both_directions_and_the_threshold() -> None:
 
     assert report["overall"]["p50"] == pytest.approx(2.0, abs=0.1)
     assert report["overall"]["max"] >= 2.0
-    assert report["threshold_km"] == geo.MAX_DEVIATION_KM
+    assert report["thresholds_km"] == {"p50": geo.DEVIATION_P50_KM, "p95": geo.DEVIATION_P95_KM, "max": geo.DEVIATION_MAX_KM}
     assert report["level0_to_ne"]["points"] > 0 and report["ne_to_level0"]["points"] > 0
+
+
+def test_deviation_thresholds_are_the_owner_ruling_59_values() -> None:
+    assert (geo.DEVIATION_P50_KM, geo.DEVIATION_P95_KM, geo.DEVIATION_MAX_KM) == (1.5, 3.5, 7.0)
+
+
+def test_measured_distribution_of_ruling_59_passes() -> None:
+    measured = {"p50": 1.083, "p95": 2.976, "max": 6.193, "points": 100}
+
+    assert geo.deviation_violations(measured) == []
+
+
+@pytest.mark.parametrize(
+    ("overall", "which"),
+    [
+        ({"p50": 1.6, "p95": 3.0, "max": 5.0}, "p50"),
+        ({"p50": 1.0, "p95": 3.6, "max": 5.0}, "p95"),
+        ({"p50": 1.0, "p95": 3.0, "max": 7.1}, "max"),
+    ],
+)
+def test_each_deviation_threshold_fails_alone(overall: dict[str, float], which: str) -> None:
+    found = geo.deviation_violations({**overall, "points": 10})
+
+    assert len(found) == 1
+    assert found[0].startswith(which)
+
+
+def test_deviation_thresholds_are_inclusive() -> None:
+    edge = {"p50": 1.5, "p95": 3.5, "max": 7.0, "points": 10}
+
+    assert geo.deviation_violations(edge) == []
 
 
 def test_tiles_covering_returns_the_tiles_around_a_point() -> None:

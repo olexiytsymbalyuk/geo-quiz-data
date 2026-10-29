@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -258,7 +258,13 @@ MIN_GAP_M = 25.0  # коротші шматки — числовий пил
 LAND_SHARE_MIN = 0.5  # частка сусідньої сторони, що має бути сушею OSM, щоб розрив вважався розривом кордону
 SAMPLE_STEP_M = 250.0
 NE_LAND_BORDER_MARGIN_M = 1000.0
-MAX_DEVIATION_KM = 2.0
+# Пороги відхилення кордону OSM від NE `_ukr` -- рішення власника 59 (єдиний поріг 2 км не відповідав розподілу).
+# Виміряно на dist/2026.11.1 з кроком 250 м: p50 1,083 км, p95 2,976 км, max 6,193 км. Кордон OSM деталізований,
+# NE 1:10m -- ні, тож «хвіст» розподілу очікуваний; три пороги ловлять і системний зсув (p50), і широкі
+# розбіжності (p95), і одиночний викид (max). Пороги нестрогі (<=).
+DEVIATION_P50_KM = 1.5
+DEVIATION_P95_KM = 3.5
+DEVIATION_MAX_KM = 7.0
 _M_PER_KM = 1000.0
 
 
@@ -347,6 +353,12 @@ def _stats_km(distances: npt.NDArray[np.float64]) -> dict[str, float]:
     }
 
 
+def deviation_violations(overall: Mapping[str, float]) -> list[str]:
+    """Порушені пороги рішення 59: по одному рядку на кожну з p50, p95, max (текст починається з назви порогу)."""
+    limits = (("p50", DEVIATION_P50_KM), ("p95", DEVIATION_P95_KM), ("max", DEVIATION_MAX_KM))
+    return [f"{name} {overall[name]} км > {limit} км" for name, limit in limits if overall[name] > limit]
+
+
 def border_deviation(
     border: BaseGeometry, neighbours: BaseGeometry, ne_home: BaseGeometry, ne_neighbours: BaseGeometry
 ) -> dict[str, Any]:
@@ -363,7 +375,7 @@ def border_deviation(
     to_ne = shapely.distance(_points(tiles_land), ne_boundary)
     to_tiles = shapely.distance(_points(ne_land), border)
     return {
-        "threshold_km": MAX_DEVIATION_KM,
+        "thresholds_km": {"p50": DEVIATION_P50_KM, "p95": DEVIATION_P95_KM, "max": DEVIATION_MAX_KM},
         "level0_to_ne": _stats_km(to_ne),
         "ne_to_level0": _stats_km(to_tiles),
         "overall": _stats_km(np.concatenate([to_ne, to_tiles])),

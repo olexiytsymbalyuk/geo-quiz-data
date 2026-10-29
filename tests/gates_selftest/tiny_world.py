@@ -47,6 +47,9 @@ BORDER_TILE = (12, 2321, 1389)
 TAMAN_POINT = (36.66, 45.2)  # «чужа» суша в bbox Криму: компонента маски, що перетинає NE-Росію
 BORDER_EDGE_X = 2048
 NE_EDGE_SHIFT = 1900  # зсув межі в еталоні NE у «поганому» світі: ≈ 2,9 км на широті 50°
+TAIL_SPAN = (1500, 1900)  # ділянка межі (вертикаль тайла), яку «хвіст» виносить убік
+TAIL_OFFSET = 3300  # ≈ 5 км
+SPIKE_AT = (6900, 2000)  # острівець за межею тайла праворуч: ≈ 7,5 км від межі
 
 
 def point_tile(lon: float, lat: float) -> tuple[int, int, int]:
@@ -246,23 +249,56 @@ def write_katottg(raw: Path, entities: Sequence[Entity]) -> None:
     book.save(target)
 
 
-def ne_polygons(shift_units: int) -> list[tuple[str, Polygon]]:
-    """NE-еталон: Україна = Крим + права частина тайла межі; сусід = ліва. `shift_units` зсуває спільну межу."""
-    edge = BORDER_EDGE_X + shift_units
+def tile_polygon(tile: tuple[int, int, int], points: Sequence[tuple[int, int]]) -> Polygon:
+    """Многокутник за вершинами в тайлових одиницях як полігон у градусах."""
+    z, x, y = tile
+    return Polygon(tile_to_lonlat(z, x, y, EXTENT)(np.array(points, dtype=np.float64)))
+
+
+def _ne_border_polygons(path: Sequence[tuple[int, int]]) -> list[tuple[str, Polygon]]:
+    """Україна праворуч від ламаної `path` (зверху вниз), сусід `PL` ліворуч; права межа України — край тайла."""
+    top, bottom = path[0][1], path[-1][1]
+    right = max(EXTENT, *(u + 1 for u, _ in path))
     return [
-        ("UA", tile_rectangle(CRIMEA_TILE, 0, 0, EXTENT, EXTENT)),
-        ("UA", tile_rectangle(BORDER_TILE, edge, 0, EXTENT, EXTENT)),
-        ("PL", tile_rectangle(BORDER_TILE, 0, 0, edge, EXTENT)),
-        ("RU", tile_rectangle(TAMAN_TILE, 0, 0, EXTENT, EXTENT)),
+        ("UA", tile_polygon(BORDER_TILE, [*path, (right, bottom), (right, top)])),
+        ("PL", tile_polygon(BORDER_TILE, [*path, (-EXTENT, bottom), (-EXTENT, top)])),
     ]
 
 
-def write_natural_earth(raw: Path, shift_units: int = 0) -> None:
+def ne_polygons(deviation: str | None) -> list[tuple[str, Polygon]]:
+    """NE-еталон: Україна = Крим + права частина тайла межі; сусід = ліва. `deviation` псує еталон так,
+    щоб порушити рівно один із порогів відхилення (рішення 59):
+
+    * `shift` -- вся межа зсунута на ≈ 2,9 км: лише p50;
+    * `tail` -- 0,6 км межі винесено на ≈ 5 км (виступ): «хвіст» -- лише p95;
+    * `spike` -- окремий острівець України за 7,5 км від межі, що торкається другого сусіда: один викид -- лише max.
+    """
+    edge = BORDER_EDGE_X + (NE_EDGE_SHIFT if deviation == "shift" else 0)
+    path = [(edge, 0), (edge, EXTENT)]
+    if deviation == "tail":
+        near, far = TAIL_SPAN
+        path = [(edge, 0), (edge, near), (edge + TAIL_OFFSET, near), (edge + TAIL_OFFSET, far), (edge, far), (edge, EXTENT)]
+    extras: list[tuple[str, Polygon]] = []
+    if deviation == "spike":
+        u, v = SPIKE_AT
+        extras = [
+            ("UA", tile_polygon(BORDER_TILE, [(u, v), (u + 20, v), (u + 20, v + 20), (u, v + 20)])),
+            ("SK", tile_polygon(BORDER_TILE, [(u + 20, v), (u + 80, v), (u + 80, v + 20), (u + 20, v + 20)])),
+        ]
+    return [
+        ("UA", tile_rectangle(CRIMEA_TILE, 0, 0, EXTENT, EXTENT)),
+        *_ne_border_polygons(path),
+        ("RU", tile_rectangle(TAMAN_TILE, 0, 0, EXTENT, EXTENT)),
+        *extras,
+    ]
+
+
+def write_natural_earth(raw: Path, deviation: str | None = None) -> None:
     target = raw.joinpath(*NE_FILE)
     target.parent.mkdir(parents=True, exist_ok=True)
     with shapefile.Writer(str(target)) as writer:
         writer.field("ISO_A2_EH", "C", size=2)
-        for iso, polygon in ne_polygons(shift_units):
+        for iso, polygon in ne_polygons(deviation):
             writer.poly([list(orient(polygon, -1.0).exterior.coords)])  # зовнішнє кільце за годинниковою стрілкою
             writer.record(iso)
 
@@ -287,7 +323,7 @@ def write_land_mask(raw: Path) -> None:
             archive.writestr(f"land_polygons.{suffix}", buffer.getvalue())
 
 
-def write_raw(raw: Path, entities: Sequence[Entity], *, ne_shift_units: int = 0) -> None:
+def write_raw(raw: Path, entities: Sequence[Entity], *, ne_deviation: str | None = None) -> None:
     write_katottg(raw, entities)
-    write_natural_earth(raw, ne_shift_units)
+    write_natural_earth(raw, ne_deviation)
     write_land_mask(raw)

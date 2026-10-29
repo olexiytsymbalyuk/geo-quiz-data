@@ -2,7 +2,7 @@
 
 `level=0` — лише сухопутний кордон, без берега, тож він не замкнений. Умова брифу «один замкнений контур»
 перекладена на три перевірки: (a) контур `land` — один основний полігон без дірок і острови; (b) кордон без розривів
-уздовж суші сусідів; (c) відхилення від NE `_ukr` ≤ 2 км по сухопутних ділянках (поріг не послаблюється).
+уздовж суші сусідів; (c) відхилення від NE `_ukr` по сухопутних ділянках: p50 ≤ 1,5, p95 ≤ 3,5, max ≤ 7 км (рішення власника 59).
 Усе — на z12, найдетальнішому зумі: на низьких зумах (z3–z4) спрощення замикає лагуни (Сиваш) і дає 18 хибних дірок.
 """
 
@@ -18,10 +18,10 @@ from shapely.geometry.base import BaseGeometry
 from tests.gates.gate_support import TileSet, find_one, summarize
 from tests.gates.geo_support import (
     FINEST_ZOOM,
-    MAX_DEVIATION_KM,
     STATE_BORDER_LEVEL,
     border_deviation,
     border_gaps,
+    deviation_violations,
     land_mask_metric,
     layer_union,
     ne_countries,
@@ -76,7 +76,5 @@ def test_border_matches_natural_earth(
     (gates_out / "border-deviation.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
     assert report["overall"]["points"] > 0, "немає жодної сухопутної ділянки кордону — перевірка порожня"
-    assert report["overall"]["max"] <= MAX_DEVIATION_KM, (
-        f"відхилення від NE: p50 {report['overall']['p50']} км, p95 {report['overall']['p95']} км, "
-        f"max {report['overall']['max']} км (поріг {MAX_DEVIATION_KM} км); рішення — за власником"
-    )
+    found = deviation_violations(report["overall"])
+    assert not found, f"відхилення від NE (пороги рішення 59): {'; '.join(found)}"

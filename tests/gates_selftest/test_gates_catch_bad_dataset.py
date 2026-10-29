@@ -115,7 +115,25 @@ def test_border_gate_writes_its_deviation_report_to_the_gates_output(tmp_path: P
     report = work_path(dataset) / "border-deviation.json"
 
     assert done.returncode == EXIT_OK, done.stdout[-2000:]
-    assert {"threshold_km", "overall"} <= set(json.loads(report.read_text(encoding="utf-8")))
+    assert {"thresholds_km", "overall"} <= set(json.loads(report.read_text(encoding="utf-8")))
+
+
+# Рішення 59: кожен поріг відхилення має свій «поганий» датасет, що валить лише його.
+DEVIATION_VIOLATIONS = {
+    "border_off_natural_earth": "p50",
+    "border_tail_off_natural_earth": "p95",
+    "border_spike_off_natural_earth": "max",
+}
+
+
+@pytest.mark.parametrize("violation", sorted(DEVIATION_VIOLATIONS))
+def test_border_gate_names_exactly_the_threshold_that_failed(violation: str, tmp_path: Path) -> None:
+    dataset = build_dataset(tmp_path, violation)
+    done = run_dataset_gates("tests/gates/test_borders_full.py", dataset)
+    named = {name for name in ("p50", "p95", "max") if re.search(rf"\b{name} [\d.]+ км >", done.stdout)}
+
+    assert done.returncode == EXIT_TESTS_FAILED, done.stdout[-2000:]
+    assert named == {DEVIATION_VIOLATIONS[violation]}, done.stdout[-2000:]
 
 
 def test_gates_without_dataset_option_are_a_usage_error_not_a_skip() -> None:

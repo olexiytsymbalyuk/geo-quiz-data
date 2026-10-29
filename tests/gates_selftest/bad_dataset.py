@@ -42,9 +42,17 @@ VIOLATIONS: dict[str, str] = {
     "districts_120": "test_counts.py::test_entity_count[raion]",
     "outline_hole": "test_borders_full.py::test_land_outline_is_one_polygon",
     "border_gap": "test_borders_full.py::test_state_border_has_no_gaps",
-    "border_off_natural_earth": "test_borders_full.py::test_border_matches_natural_earth",
+    "border_off_natural_earth": "test_borders_full.py::test_border_matches_natural_earth",  # лише p50
+    "border_tail_off_natural_earth": "test_borders_full.py::test_border_matches_natural_earth",  # лише p95
+    "border_spike_off_natural_earth": "test_borders_full.py::test_border_matches_natural_earth",  # лише max
     "startable_soft_sign": "test_chain_letters.py::test_soft_sign_is_never_startable",
     "chain_letter_outside_pool": "test_chain_letters.py::test_chain_letters_belong_to_effective_pool",
+}
+# Порушення відхилення кордону -> спосіб зіпсувати еталон NE (`tiny_world.ne_polygons`).
+NE_DEVIATIONS = {
+    "border_off_natural_earth": "shift",
+    "border_tail_off_natural_earth": "tail",
+    "border_spike_off_natural_earth": "spike",
 }
 RAW_NAME = "raw"
 WORK_NAME = "work"
@@ -217,8 +225,8 @@ def build_dataset(root: Path, violation: str | None = None, version: str = VERSI
     _write_pmtiles(out / f"ukraine-{version}.pmtiles", violation, sentinel, version)
     entities, startable = tiny_world.apply_violation(violation, *tiny_world.good_world(version))
     tiny_world.write_gazetteer(out / f"gazetteer-{version}.sqlite", entities, startable, version)
-    shift = tiny_world.NE_EDGE_SHIFT if violation == "border_off_natural_earth" else 0
-    tiny_world.write_raw(raw_path(out), tiny_world.good_world(version)[0], ne_shift_units=shift)  # еталон КАТОТТГ — добрий
+    ne_deviation = NE_DEVIATIONS.get(violation or "")
+    tiny_world.write_raw(raw_path(out), tiny_world.good_world(version)[0], ne_deviation=ne_deviation)  # еталон КАТОТТГ — добрий
     _write_json(out / f"gazetteer-ukraine-{version}.json", version)
     (out / "metrics.json").write_text(
         json.dumps({"dataset_version": version, "neutral_country_ids": list(NEUTRAL_COUNTRY_IDS)}), encoding="utf-8"
