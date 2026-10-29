@@ -17,7 +17,8 @@ pmtiles, mapbox-vector-tile; важкі інструменти (osmium, tippecan
 
 ```bash
 source .venv/bin/activate
-python -m pytest -q      # tests/unit (швидкі, на синтетичних даних)
+python -m pytest -q      # tests/unit + tests/gates_selftest (швидкі, на синтетичних даних)
+python -m pytest tests/gates -q --dataset dist/<версія>   # ворота по готовому релізу (без --dataset — UsageError)
 python -m mypy           # strict, пакет pipeline
 ```
 Залежності пінені `uv pip compile` у `requirements.txt` / `requirements-dev.txt`; сторож —

@@ -28,7 +28,8 @@
 ```bash
 uv venv -p 3.11 && source .venv/bin/activate
 uv pip install -r requirements-dev.txt
-python -m pytest -q      # юніт-тести
+python -m pytest -q      # юніт-тести й самотест воріт
+python -m pytest tests/gates -q --dataset dist/<версія>   # ворота по артефактах релізу
 python -m mypy           # strict
 ```
 
