@@ -2,8 +2,8 @@
 
 Конвеєр даних географічної квіз-платформи для учнів 5–11 класів: КАТОТТГ ⨝ OSM ⨝ Wikidata → PMTiles
 і газетир. Коментарі, коміти, спеки й плани — **українською**; ідентифікатори — англійською.
-Founding brief — `docs/founding-brief.md` застосунку (`/Users/olexiytsymbalyuk/WebstormProjects/geo-quiz`);
-еталонний код — `/Users/olexiytsymbalyuk/WebstormProjects/bot-arena` (лише читати).
+Founding brief — `docs/founding-brief.md` застосунку (приватний репозиторій geo-quiz);
+еталонний код — приватний репозиторій bot-arena (лише читати).
 
 ## Назва продукту — змінна
 Назва продукту (поточна — «Гео-Арена») **робоча**, остаточну обирає власник. У цьому репозиторії

@@ -38,7 +38,7 @@ SCOPE = "ukraine"
 TIERS = (1, 2, 3, 4)
 BIG_CITY_POPULATION = 100_000
 
-# Донеччина: центр за КАТОТТГ — Донецьк; у Wikidata два чинні P36 (Ruling 12).
+# Донеччина: центр за КАТОТТГ — Донецьк; у Wikidata два чинні P36, тож центр береться з КАТОТТГ.
 CAPITAL_OVERRIDES: dict[str, str] = {"UA14000000000091971": "UA14080030010048113"}
 
 _TYPE_BY_CATEGORY = {
@@ -353,7 +353,7 @@ def _startable_by_tier(entities: list[Entity], min_count: int) -> dict[int, froz
 
 
 def effective_chain_tier(tier: int, startable: Mapping[int, frozenset[str]]) -> int:
-    """Найменший непорожній пул `startable` з ярусом ≥ `tier` (Ruling 22); порожні всі -> `GazetteerError`."""
+    """Найменший непорожній пул `startable` з ярусом ≥ `tier` (порожній пул легітимний: сутність бере найближчий непорожній); порожні всі -> `GazetteerError`."""
     for candidate in sorted(t for t in startable if t >= tier):
         if startable[candidate]:
             return candidate

@@ -34,7 +34,7 @@ sources:
   land_polygons:
     license: ODbL 1.0  # © OpenStreetMap contributors; osmdata.openstreetmap.de
     # Оригінал osmdata (≈ 929 МБ) оновлюється щодня без датованого знімка, тож холодний fetch його не тягне
-    # (рішення власника 60). Конвеєр читає обрізану похідну: полігони, що перетинають bbox датасету + 3°
+    # (рішення власника від 2026-10-29). Конвеєр читає обрізану похідну: полігони, що перетинають bbox датасету + 3°
     # (`python -m pipeline.land_clip`), asset релізу `sources-2026-10`. Походження -- `derived_from`.
     files:
       - name: land-polygons-split-4326-ukraine.zip

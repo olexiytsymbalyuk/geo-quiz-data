@@ -118,7 +118,7 @@ def test_border_gate_writes_its_deviation_report_to_the_gates_output(tmp_path: P
     assert {"thresholds_km", "overall"} <= set(json.loads(report.read_text(encoding="utf-8")))
 
 
-# Рішення 59: кожен поріг відхилення має свій «поганий» датасет, що валить лише його.
+# Затверджені пороги: кожен поріг відхилення має свій «поганий» датасет, що валить лише його.
 DEVIATION_VIOLATIONS = {
     "border_off_natural_earth": "p50",
     "border_tail_off_natural_earth": "p95",

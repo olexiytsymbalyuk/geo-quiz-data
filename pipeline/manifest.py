@@ -39,7 +39,7 @@ def _first_file(sources: dict[str, Any], source: str) -> dict[str, Any]:
 
 
 def ne_version_from_lock(lock: Path) -> str:
-    """Версія Natural Earth — з тегу `vX.Y.Z` в URL файлів у lock (Ruling 8)."""
+    """Версія Natural Earth — з тегу `vX.Y.Z` в URL файлів у lock (константи версії в коді немає)."""
     url = str(_first_file(_sources(lock), "ne_admin0_ukr")["url"])
     match = _NE_TAG_RE.search(url)
     if match is None:

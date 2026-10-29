@@ -279,11 +279,11 @@ def test_border_deviation_reports_both_directions_and_the_threshold() -> None:
     assert report["level0_to_ne"]["points"] > 0 and report["ne_to_level0"]["points"] > 0
 
 
-def test_deviation_thresholds_are_the_owner_ruling_59_values() -> None:
+def test_deviation_thresholds_are_the_owner_approved_values() -> None:
     assert (geo.DEVIATION_P50_KM, geo.DEVIATION_P95_KM, geo.DEVIATION_MAX_KM) == (1.5, 3.5, 7.0)
 
 
-def test_measured_distribution_of_ruling_59_passes() -> None:
+def test_measured_distribution_passes() -> None:
     measured = {"p50": 1.083, "p95": 2.976, "max": 6.193, "points": 100}
 
     assert geo.deviation_violations(measured) == []

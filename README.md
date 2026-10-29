@@ -2,7 +2,7 @@
 
 Конвеєр даних географічної квіз-платформи для українських школярів: з офіційного кодифікатора
 КАТОТТГ, OpenStreetMap і Wikidata збирає атлас «Україна» — тайли PMTiles і газетир (назви,
-ієрархія, колишні назви, координати, населення). Тести-ворота (`tests/gates/`) доводять правило
+ієрархія, координати, населення; колишні назви — планується, не в M0). Тести-ворота (`tests/gates/`) доводять правило
 топонімів на готових артефактах; реліз, що не пройшов їх, не публікується.
 
 Репозиторій публічний: газетир є похідною базою даних OpenStreetMap, тож ліцензія ODbL вимагає
@@ -69,7 +69,7 @@ python -m pipeline.build --version 2026.11.1 [--force]
 
 Маска суші — [osmdata land-polygons-split-4326](https://osmdata.openstreetmap.de/data/land-polygons.html) (ODbL 1.0,
 © OpenStreetMap contributors). Оригінал (≈ 929 МБ) оновлюється щодня без датованого знімка, тож холодний fetch
-завжди падав би на sha256. Рішення власника 60: конвеєр читає **обрізану похідну** `land-polygons-split-4326-ukraine.zip`
+завжди падав би на sha256. За рішенням власника від 2026-10-29 конвеєр читає **обрізану похідну** `land-polygons-split-4326-ukraine.zip`
 (≈ 5 МБ) — лише полігони, що перетинають bbox датасету + 3° (`CLIP_MARGIN_DEG`), як asset релізу
 [`sources-2026-10`](https://github.com/olexiytsymbalyuk/geo-quiz-data/releases/tag/sources-2026-10). Звичайний
 `python -m pipeline.fetch` і CI тягнуть саме його; sha256 і розмір — у `config/sources.lock`, походження (url і sha256
@@ -112,10 +112,10 @@ uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o r
 |---|---|---|
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Geofabrik, Ukraine PBF) | пункти, адмінполігони, вода, вершини, `name:uk` | ODbL 1.0 — © OpenStreetMap contributors |
 | [OSM land polygons](https://osmdata.openstreetmap.de/data/land-polygons.html) (osmdata.openstreetmap.de; обрізана похідна) | берегова лінія: маска суші для контуру | ODbL 1.0 — © OpenStreetMap contributors |
-| [Natural Earth](https://www.naturalearthdata.com/) 5.1.2 | кордони за POV України, фізична географія, озера, річки | public domain |
+| [Natural Earth](https://www.naturalearthdata.com/) 5.1.2 | кордони за POV України (M0); фізична географія, озера, річки — планується (не в M0) | public domain |
 | [КАТОТТГ](https://mininfra.gov.ua/diialnist/rozvytok-mistsevoho-samovriaduvannia/kodyfikator-administratyvno-terytorialnykh-odynyts-ta-terytorii-terytorialnykh-hromad) (Міністерство розвитку громад та територій України (Мінрозвитку)) | офіційні назви, категорії, ієрархія, коди | CC BY 4.0 (підтверджено на mininfra.gov.ua 29.10.2026) |
 | [Wikidata](https://www.wikidata.org/) | P9435 (KATOTTH ID), населення, координати, лейбли й аліаси uk/en | CC0 |
-| [GeoNames](https://www.geonames.org/) | точки, населення, feature codes, альтернативні назви | CC BY 4.0 |
+| [GeoNames](https://www.geonames.org/) | планується (не в M0): точки, населення, feature codes, альтернативні назви | CC BY 4.0 |
 
 GADM і Eurostat GISCO як геометрія не використовуються; geoBoundaries та OCHA COD-AB — лише
 для звірки, у випуск не потрапляють.
