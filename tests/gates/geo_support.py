@@ -20,7 +20,7 @@ from shapely.geometry import box, shape
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
-from tests.gates.gate_support import TileKey, TileSet, _fields
+from tests.gates.gate_support import Gazetteer, TileKey, TileSet, _fields, safe_id
 
 # Азимутна рівноплоща проєкція з центром в Україні: площі точні, спотворення відстаней < 0,2 % на всій території.
 METRIC_CRS = "+proj=laea +lat_0=49 +lon_0=32 +datum=WGS84 +units=m"
@@ -266,6 +266,10 @@ DEVIATION_P50_KM = 1.5
 DEVIATION_P95_KM = 3.5
 DEVIATION_MAX_KM = 7.0
 _M_PER_KM = 1000.0
+# Допуск для точок газетира проти нейтральної суші NE: узято той самий верхній поріг відхилення кордону OSM від NE
+# (DEVIATION_MAX_KM). Поселення КАТОТТГ біля кордону через генералізацію NE лягають «через лінію»; виміряно на
+# dist/2026.11.1: 112 точок у нейтральній суші NE, найглибша -- 4,5 км.
+NEUTRAL_POINT_TOLERANCE_KM = DEVIATION_MAX_KM
 
 
 def neighbour_union(tileset: TileSet, zoom: int) -> BaseGeometry:
@@ -382,3 +386,24 @@ def border_deviation(
         "ne_land_border_margin_m": NE_LAND_BORDER_MARGIN_M,
         "zoom": FINEST_ZOOM,
     }
+
+
+# --- точки газетира проти нейтральної суші ---------------------------------------------------------------------
+
+def neutral_point_violations(gazetteer: Gazetteer, neutral: BaseGeometry, tolerance_m: float) -> tuple[list[str], int]:
+    """(порушення, кількість перевірених точок): сутності з координатами глибше за `tolerance_m` у нейтральній суші.
+
+    `neutral` -- NE-полігони нейтральних країн у метрах. Сутності без lat/lon не перевіряються й не рахуються.
+    """
+    rows = [r for r in gazetteer.entities if r["lat"] is not None and r["lon"] is not None]
+    if not rows:
+        return [], 0
+    x, y = to_metric(np.array([r["lon"] for r in rows], dtype=np.float64), np.array([r["lat"] for r in rows], dtype=np.float64))
+    interior = neutral.buffer(-tolerance_m)
+    shapely.prepare(interior)
+    found = [
+        f"sqlite entity {safe_id(row['id'], index)}: точка в нейтральній суші"
+        for index, (row, inside) in enumerate(zip(rows, shapely.contains_xy(interior, x, y), strict=True))
+        if inside
+    ]
+    return found, len(rows)

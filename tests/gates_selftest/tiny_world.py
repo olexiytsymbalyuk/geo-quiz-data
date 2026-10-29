@@ -49,6 +49,9 @@ BORDER_EDGE_X = 2048
 NE_EDGE_SHIFT = 1900  # зсув межі в еталоні NE у «поганому» світі: ≈ 2,9 км на широті 50°
 TAIL_SPAN = (1500, 1900)  # ділянка межі (вертикаль тайла), яку «хвіст» виносить убік
 TAIL_OFFSET = 3300  # ≈ 5 км
+NEUTRAL_BOX = (27.0, 53.0, 30.0, 55.0)  # «Білорусь» в еталоні NE: далеко від решти тайлів, щоб не впливати на інші ворота
+NEUTRAL_INTERIOR_POINT = (54.0, 28.5)  # (широта, довгота) -- десятки кілометрів углиб нейтральної суші
+VINNYTSIA_POINT = (49.23, 28.47)  # (широта, довгота) у «доброму» світі: поза нейтральною сушею
 SPIKE_AT = (6900, 2000)  # острівець за межею тайла праворуч: ≈ 7,5 км від межі
 
 
@@ -185,6 +188,8 @@ def good_world(version: str) -> tuple[list[Entity], dict[int, frozenset[str]]]:
     raions = _raions(oblasts, version)
     hromadas = _hromadas(raions, version)
     entities = [*oblasts, *raions, *hromadas, *_cities(hromadas, version), *_renamed_villages(hromadas, version)]
+    lat, lon = VINNYTSIA_POINT
+    entities = _replace(entities, _id_of(entities, VINNYTSIA[0]), lat=lat, lon=lon)
     return _with_letters(entities, load_policy().startable_min)
 
 
@@ -202,6 +207,9 @@ def apply_violation(
     """Порушення газетира; решта порушень (тайли, еталони) додаються в `bad_dataset`."""
     if violation == "crimea_country_ru":
         return _replace(entities, _id_of(entities, "Сімферополь"), country="RU"), startable
+    if violation == "gazetteer_point_in_neutral":  # координати Вінниці -- глибоко в нейтральній суші еталона NE
+        lat, lon = NEUTRAL_INTERIOR_POINT
+        return _replace(entities, _id_of(entities, VINNYTSIA[0]), lat=lat, lon=lon), startable
     if violation == "districts_120":
         dropped = {e.id for e in entities if e.type == "raion"}
         keep = sorted(dropped)[: RAIONS - 16]
@@ -289,6 +297,7 @@ def ne_polygons(deviation: str | None) -> list[tuple[str, Polygon]]:
         ("UA", tile_rectangle(CRIMEA_TILE, 0, 0, EXTENT, EXTENT)),
         *_ne_border_polygons(path),
         ("RU", tile_rectangle(TAMAN_TILE, 0, 0, EXTENT, EXTENT)),
+        ("BY", box(*NEUTRAL_BOX)),
         *extras,
     ]
 

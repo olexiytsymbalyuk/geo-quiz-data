@@ -31,6 +31,7 @@ VIOLATIONS: dict[str, str] = {
     "forbidden_letter": "test_no_russian_letters.py::test_tiles_have_no_russian_letters",
     "sentinel_name": "test_exonym_blocklist.py::test_tiles_have_no_blocked_names",
     "named_point_in_landmass": "test_no_neutral_country.py::test_no_named_feature_inside_neutral_landmass",
+    "gazetteer_point_in_neutral": "test_no_neutral_country.py::test_gazetteer_points_stay_out_of_neutral_land",
     "bad_sha256": "test_manifest.py::test_artifacts_match_manifest",
     "sources_mismatch": "test_manifest.py::test_manifest_sources_match_lock",
     "crimea_country_ru": "test_crimea_is_ukraine.py::test_crimean_entities_are_ukrainian",

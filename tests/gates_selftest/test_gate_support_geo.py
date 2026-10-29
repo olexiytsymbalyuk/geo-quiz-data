@@ -177,6 +177,32 @@ def test_checked_zone_drops_only_components_touching_a_neutral_country() -> None
     assert zone.equals(mainland.union(island))
 
 
+def test_neutral_points_flag_a_point_deep_in_neutral_land_but_excuse_the_ne_seam() -> None:
+    neutral = geo.project(box(30.0, 53.0, 33.0, 55.0))  # синтетична «Білорусь»
+    tolerance_m = geo.NEUTRAL_POINT_TOLERANCE_KM * KM
+    deep = {"id": "ua:deep", "lat": 54.0, "lon": 31.5}
+    outside = {"id": "ua:kyiv", "lat": 50.45, "lon": 30.52}
+    no_point = {"id": "ua:oblast", "lat": None, "lon": None}
+    # Поселення за ~2 км від межі NE лежить у «нейтральній» суші лише через генералізацію NE.
+    seam = {"id": "ua:seam", "lat": 53.0 + 2.0 / 111.0, "lon": 31.5}
+
+    found, checked = geo.neutral_point_violations(
+        gazetteer([deep, outside, no_point, seam]), neutral, tolerance_m
+    )
+
+    assert checked == 3
+    assert found == ["sqlite entity ua:deep: точка в нейтральній суші"]
+
+
+def test_neutral_points_keep_the_name_out_of_the_message() -> None:
+    neutral = geo.project(box(30.0, 53.0, 33.0, 55.0))
+    row = {"id": "Назва з пробілами", "lat": 54.0, "lon": 31.5}
+
+    found, _ = geo.neutral_point_violations(gazetteer([row]), neutral, 1000.0)
+
+    assert len(found) == 1 and "Назва" not in found[0]
+
+
 def test_anchors_outside_counts_points_far_from_the_zone() -> None:
     lon, lat = geo.CRIMEA_ANCHORS[0]
     x, y = geo.to_metric(np.array([lon]), np.array([lat]))
