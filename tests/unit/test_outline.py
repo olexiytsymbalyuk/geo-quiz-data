@@ -46,6 +46,14 @@ def test_build_outline_is_valid_for_invalid_input_polygon() -> None:
     assert outline.area > 0
 
 
+def test_build_outline_accepts_an_invalid_land_mask() -> None:
+    bowtie_mask = Polygon([(0, 0), (10, 10), (10, 0), (0, 10)])
+    assert not bowtie_mask.is_valid
+    outline = build_outline([box(-1, -1, 11, 11)], bowtie_mask)
+    assert outline.is_valid
+    assert outline.area == pytest.approx(50)  # два трикутники «метелика» по 25
+
+
 def test_build_outline_is_empty_multipolygon_when_nothing_on_land() -> None:
     outline = build_outline([box(0, 0, 1, 1)], box(50, 50, 51, 51))
     assert isinstance(outline, MultiPolygon)

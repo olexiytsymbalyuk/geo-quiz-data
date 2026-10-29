@@ -148,3 +148,12 @@ def test_countries_never_keep_slivers_of_ukraine_itself(tmp_path: Path) -> None:
     # NE-Україна ширша за контур (берег, море): залишок після віднімання не має стати «сусідом»
     rows = [("UA", "Q212", "Україна", box(-1, -1, 11, 11))]
     assert build_countries(_write_ne(tmp_path, rows), OUTLINE, _policy()) == []
+
+
+def test_landmass_subtracts_the_outline_where_neutral_land_overlaps_it(tmp_path: Path) -> None:
+    # сценарій Криму: нейтральний квадрат накладається на контур (x 5..10), поза ним лишається x 10..12
+    rows = [("RU", "Q159", "Ніщо", box(5, 0, 12, 10))]
+    (feature,) = build_landmass(_write_ne(tmp_path, rows), OUTLINE, NEUTRAL)
+    geometry = feature["geometry"]
+    assert geometry.intersection(OUTLINE).area < 1e-9
+    assert geometry.area == pytest.approx(2 * 10)

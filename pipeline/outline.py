@@ -22,7 +22,8 @@ _LAND_EXTENSIONS = ("shp", "shx", "dbf", "cpg")
 def build_outline(oblast_polys: Sequence[BaseGeometry], land_mask: BaseGeometry) -> MultiPolygon:
     """Об'єднання областей ∩ маска суші: контур не виходить у море."""
     union = unary_union([as_multipolygon(polygon) for polygon in oblast_polys])
-    return as_multipolygon(union.intersection(land_mask))
+    valid_mask = as_multipolygon(land_mask)  # зіпсована маска не має ламати перетин
+    return as_multipolygon(union.intersection(valid_mask))
 
 
 def _lines(geometry: BaseGeometry) -> Iterator[LineString]:
