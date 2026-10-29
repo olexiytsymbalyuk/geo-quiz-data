@@ -428,12 +428,17 @@ class _Piece:
     feature: Mapping[str, Any]
 
 
+def water_entity_id(props: Mapping[str, Any]) -> str:
+    """Id сутності води чи вершини: `wd:<QID>` за тегом `wikidata`, інакше `osm:<n|w|r><id>`."""
+    qid = _qid_of(props)
+    return f"wd:{qid}" if qid else f"osm:{_osm_ref(props)}"
+
+
 def _group_pieces(pieces: Iterable[_Piece]) -> dict[str, list[_Piece]]:
     """Фічі з однаковим `wikidata` — одна сутність `wd:<QID>`; решта — `osm:<ref>`."""
     groups: dict[str, list[_Piece]] = {}
     for piece in pieces:
-        key = f"wd:{piece.qid}" if piece.qid else f"osm:{piece.ref}"
-        groups.setdefault(key, []).append(piece)
+        groups.setdefault(water_entity_id(_props(piece.feature)), []).append(piece)
     return groups
 
 
@@ -589,23 +594,18 @@ def build_report(result: GazetteerResult) -> dict[str, Any]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    """`python -m pipeline.gazetteer --report` — збірка з кешу (без мережі) у `data/work/`."""
-    from pipeline.gazetteer_io import write_scope_json, write_sqlite
+def build_from_cache() -> GazetteerResult:
+    """Збірка газетира з кешу `data/raw/` і витягу `data/work/extract/` (без мережі)."""
     from pipeline.katottg import KATOTTG_FILE, parse_katottg
     from pipeline.paths import RAW, WORK
     from pipeline.policy import load_policy
     from pipeline.wikidata import fetch
 
-    args = sys.argv[1:] if argv is None else argv
-    if args != ["--report"]:
-        sys.stderr.write("використання: python -m pipeline.gazetteer --report\n")
-        return 2
     units = parse_katottg(KATOTTG_FILE)
     wd = fetch(RAW)
     capitals = resolve_capitals(wd.capitals, wd.capital_conflicts, {u.code for u in units if u.category == "O"})
     extract = WORK / "extract"
-    result = build_gazetteer(
+    return build_gazetteer(
         units,
         read_layer(extract / "places.geojsonl"),
         read_layer(extract / "admin.geojsonl"),
@@ -616,6 +616,18 @@ def main(argv: list[str] | None = None) -> int:
         load_policy(),
         DATASET_VERSION,
     )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`python -m pipeline.gazetteer --report` — збірка з кешу (без мережі) у `data/work/`."""
+    from pipeline.gazetteer_io import write_scope_json, write_sqlite
+    from pipeline.paths import WORK
+
+    args = sys.argv[1:] if argv is None else argv
+    if args != ["--report"]:
+        sys.stderr.write("використання: python -m pipeline.gazetteer --report\n")
+        return 2
+    result = build_from_cache()
     write_sqlite(result, WORK / "gazetteer.sqlite")
     write_scope_json(result, WORK / "gazetteer-ukraine.json")
     report = build_report(result)

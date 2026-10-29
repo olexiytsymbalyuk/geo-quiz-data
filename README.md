@@ -47,6 +47,15 @@ bookworm-slim; нативно на arm64 і на linux/amd64). Кроки кон
 python -m pipeline.tools build   # зібрати образ (~40 с без кешу)
 ```
 
+### Тайли (M0)
+
+```bash
+python -m pipeline.layers --real   # газетир -> контур -> шари з білим списком -> tippecanoe -> data/work/ukraine-test.pmtiles
+```
+
+Шари й білий список атрибутів — `pipeline/layers.py` (`LAYER_WHITELIST`), PMTiles і штамп
+`dataset_version` — `pipeline/tiles.py`. Виміри прогону пишуться в `data/work/layers-report.json`.
+
 ### Залежності
 
 Версії заморожено `uv pip compile`; сторож `tests/unit/test_requirements_lock.py` стежить, щоб

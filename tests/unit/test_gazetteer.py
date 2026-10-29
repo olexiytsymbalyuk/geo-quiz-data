@@ -18,6 +18,7 @@ from pipeline.gazetteer import (
     build_gazetteer,
     effective_chain_tier,
     resolve_capitals,
+    water_entity_id,
 )
 from pipeline.gazetteer_io import write_scope_json, write_sqlite
 from pipeline.katottg import KatottgUnit
@@ -569,3 +570,9 @@ def test_write_sqlite_roundtrip(tmp_path: Path) -> None:
         assert set(json.loads(startable)) == {"1", "2", "3", "4"}
     finally:
         con.close()
+
+
+def test_water_entity_id_prefers_wikidata_and_falls_back_to_osm_ref() -> None:
+    assert water_entity_id({"@type": "relation", "@id": 7, "wikidata": "Q42"}) == "wd:Q42"
+    assert water_entity_id({"@type": "way", "@id": 8}) == "osm:w8"
+    assert water_entity_id({"@type": "node", "@id": 9, "wikidata": "не-QID"}) == "osm:n9"

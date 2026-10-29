@@ -38,6 +38,11 @@ packages = ["pipeline"]
 module = ["shapely.*", "pyproj.*", "shapefile.*", "pmtiles.*", "mapbox_vector_tile.*", "openpyxl.*", "duckdb.*"]
 ignore_missing_imports = true
 
+# pmtiles поставляється без анотацій типів: виклики його reader/writer неминуче «untyped».
+[[tool.mypy.overrides]]
+module = "pipeline.tiles"
+disallow_untyped_calls = false
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
