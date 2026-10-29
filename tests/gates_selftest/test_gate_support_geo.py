@@ -194,6 +194,22 @@ def test_neutral_points_flag_a_point_deep_in_neutral_land_but_excuse_the_ne_seam
     assert found == ["sqlite entity ua:deep: точка в нейтральній суші"]
 
 
+def test_neutral_point_tolerance_is_a_dedicated_margin_above_the_measured_seam() -> None:
+    # Найглибша законна точка КАТОТТГ у нейтральній суші NE -- 4,5 км; запас ~1 км, але не загальний поріг кордону 7 км.
+    assert geo.NEUTRAL_POINT_TOLERANCE_KM == 5.5
+    assert geo.NEUTRAL_POINT_TOLERANCE_KM < geo.DEVIATION_MAX_KM
+
+
+def test_neutral_points_flag_a_point_six_km_inside_neutral_land() -> None:
+    # Межу ущільнено до проєкції: інакше конічна проєкція робить зі сторони коробки хорду, і «6 км» стають ~5 км.
+    neutral = geo.project(box(30.0, 53.0, 33.0, 55.0).segmentize(0.01))
+    six_km_in = {"id": "ua:six", "lat": 53.0 + 6.0 / 111.0, "lon": 31.5}
+
+    found, _ = geo.neutral_point_violations(gazetteer([six_km_in]), neutral, geo.NEUTRAL_POINT_TOLERANCE_KM * KM)
+
+    assert found == ["sqlite entity ua:six: точка в нейтральній суші"]
+
+
 def test_neutral_points_keep_the_name_out_of_the_message() -> None:
     neutral = geo.project(box(30.0, 53.0, 33.0, 55.0))
     row = {"id": "Назва з пробілами", "lat": 54.0, "lon": 31.5}
