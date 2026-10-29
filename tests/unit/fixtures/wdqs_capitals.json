@@ -1,0 +1,272 @@
+{
+ "head": {
+  "vars": [
+   "oblastCode",
+   "centerCode"
+  ]
+ },
+ "results": {
+  "bindings": [
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA01000000000010001"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA01020010010020001"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA02000000000010002"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA02020010010020002"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA03000000000010003"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA03020010010020003"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA04000000000010004"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA04020010010020004"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA05000000000010005"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA05020010010020005"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA06000000000010006"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA06020010010020006"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA07000000000010007"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA07020010010020007"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA08000000000010008"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA08020010010020008"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA09000000000010009"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA09020010010020009"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA10000000000010010"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA10020010010020010"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA11000000000010011"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA11020010010020011"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA12000000000010012"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA12020010010020012"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA13000000000010013"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA13020010010020013"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA14000000000010014"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA14020010010020014"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA15000000000010015"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA15020010010020015"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA16000000000010016"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA16020010010020016"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA17000000000010017"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA17020010010020017"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA18000000000010018"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA18020010010020018"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA19000000000010019"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA19020010010020019"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA20000000000010020"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA20020010010020020"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA21000000000010021"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA21020010010020021"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA22000000000010022"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA22020010010020022"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA23000000000010023"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA23020010010020023"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA24000000000010024"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA24020010010020024"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA25000000000010025"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA25020010010020025"
+    }
+   },
+   {
+    "oblastCode": {
+     "type": "literal",
+     "value": "UA25000000000010025"
+    },
+    "centerCode": {
+     "type": "literal",
+     "value": "UA25080030010020026"
+    }
+   }
+  ]
+ }
+}

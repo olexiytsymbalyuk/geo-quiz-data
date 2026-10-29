@@ -1,0 +1,416 @@
+{
+ "head": {
+  "vars": [
+   "item",
+   "code",
+   "pop",
+   "popRank",
+   "popTime",
+   "coord"
+  ]
+ },
+ "results": {
+  "bindings": [
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q101"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000001"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "1000",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2001-12-05T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(28.4683 49.2328)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q101"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000001"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "1200",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#PreferredRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2022-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(28.4683 49.2328)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q102"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000002"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "5000",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#PreferredRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2010-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q102"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000002"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "9000",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2022-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q103"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000003"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "300",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2015-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q103"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000003"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "350",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2019-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q104"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000004"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "70",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#PreferredRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2011-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q104"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000004"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "80",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#PreferredRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2020-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q105"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000005"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "99",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#DeprecatedRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2023-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(30.5 50.45)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q106"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000006"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q107"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000007"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "10",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(24.0 49.8)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q110"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000010"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "40",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2020-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q111"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000010"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "41",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2020-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q112"
+    },
+    "code": {
+     "type": "literal",
+     "value": "  UA05020030010000012 "
+    },
+    "pop": {
+     "type": "literal",
+     "value": "25",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2021-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(33.1 44.6)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q108"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000008"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "15",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2018-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(40.0 50.0)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   },
+   {
+    "item": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q108"
+    },
+    "code": {
+     "type": "literal",
+     "value": "UA05020030010000008"
+    },
+    "pop": {
+     "type": "literal",
+     "value": "15",
+     "datatype": "http://www.w3.org/2001/XMLSchema#decimal"
+    },
+    "popRank": {
+     "type": "uri",
+     "value": "http://wikiba.se/ontology#NormalRank"
+    },
+    "popTime": {
+     "type": "literal",
+     "value": "2018-01-01T00:00:00Z",
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime"
+    },
+    "coord": {
+     "type": "literal",
+     "value": "Point(40.0 50.0)",
+     "datatype": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+   }
+  ]
+ }
+}

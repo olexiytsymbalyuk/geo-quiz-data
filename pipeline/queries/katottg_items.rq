@@ -1,0 +1,12 @@
+# Усі об'єкти Wikidata з кодом КАТОТТГ (P9435): населення (P1082) з рангом і датою (P585), координати (P625).
+# Міток немає зовсім: назви беремо лише з КАТОТТГ.
+SELECT ?item ?code ?pop ?popRank ?popTime ?coord WHERE {
+  ?item wdt:P9435 ?code .
+  OPTIONAL {
+    ?item p:P1082 ?popStatement .
+    ?popStatement ps:P1082 ?pop ;
+                  wikibase:rank ?popRank .
+    OPTIONAL { ?popStatement pq:P585 ?popTime . }
+  }
+  OPTIONAL { ?item wdt:P625 ?coord . }
+}
