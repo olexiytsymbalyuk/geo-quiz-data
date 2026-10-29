@@ -144,27 +144,19 @@ jobs:
           PY
           fi
 
-      - name: Вивантажити артефакти (до воріт)
-        if: always()
+      - name: Ворота
+        run: python -m pytest tests/gates --dataset "dist/$VERSION" --lock config/sources.lock --raw data/raw -q
+
+      # Репозиторій публічний: датасет вивантажується лише після зелених воріт (за success() за замовчуванням).
+      - name: Вивантажити датасет (після воріт)
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataset-${{ env.VERSION }}
           path: dist/${{ env.VERSION }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
-      - name: Вивантажити недозібране для діагностики
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: partial-${{ env.VERSION }}
-          path: dist/${{ env.VERSION }}.partial
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Ворота
-        run: python -m pytest tests/gates --dataset "dist/$VERSION" --lock config/sources.lock --raw data/raw -q
-
+      # Звіти воріт -- лише числа й назви областей.
       - name: Звіти воріт
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -173,6 +165,20 @@ jobs:
           path: data/work/gates
           if-no-files-found: ignore
           retention-days: 14
+
+      # На провал -- лише діагностика без даних (метрики й маніфест); тайли й газетир не вивантажуються.
+      - name: Діагностика збірки (без даних)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: diagnostics-${{ env.VERSION }}
+          path: |
+            dist/${{ env.VERSION }}/metrics.json
+            dist/${{ env.VERSION }}/manifest.json
+            dist/${{ env.VERSION }}.partial/metrics.json
+            dist/${{ env.VERSION }}.partial/manifest.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   release:
     needs: [validate, build]
@@ -203,7 +209,8 @@ jobs:
           for f in "${files[@]}"; do
             [ -f "$f" ] || { echo "::error::немає файла $f"; exit 1; }
           done
-          notes="Ворота зелені; версія датасету $VERSION."
+          notes="Ворота зелені; версія датасету $VERSION; збірка $GITHUB_SHA.
+          © OpenStreetMap contributors, ODbL 1.0; КАТОТТГ — Міністерство розвитку громад та територій України (Мінрозвитку), CC BY 4.0; Natural Earth — public domain; Wikidata — CC0. Газетир — похідна база даних під ODbL 1.0."
           if gh release view m0 >/dev/null 2>&1; then
             gh release edit m0 --prerelease --title "M0: атлас Україна $VERSION" --notes "$notes"
           else

@@ -99,12 +99,52 @@ def test_gates_step_runs_without_continue_on_error_or_skip_flags(workflow: dict[
         assert not step.get("continue-on-error"), step.get("name")
 
 
-def test_artifacts_are_uploaded_before_gates_even_if_they_fail(workflow: dict[str, Any]) -> None:
+def _uploads(job: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+    return [(i, s) for i, s in enumerate(job["steps"]) if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
+
+
+def test_dataset_artifact_is_uploaded_only_after_gates_pass(workflow: dict[str, Any]) -> None:
+    """Репозиторій публічний: датасет, що не пройшов ворота, не має потрапляти в artifacts."""
     build = _jobs(workflow)["build"]
-    uploads = [i for i, s in enumerate(build["steps"]) if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
-    assert uploads
-    assert min(uploads) > _step_index(build, "pipeline.build")
-    assert min(uploads) < _step_index(build, "pytest tests/gates ")
+    datasets = [(i, s) for i, s in _uploads(build) if str(s["with"]["name"]).startswith("dataset-")]
+    assert len(datasets) == 1
+    index, step = datasets[0]
+    assert index > _step_index(build, "pytest tests/gates ")
+    condition = str(step.get("if", "success()"))
+    assert "always()" not in condition and "failure()" not in condition and "cancelled()" not in condition
+
+
+def test_failed_build_uploads_only_diagnostics_without_tiles_or_gazetteer(workflow: dict[str, Any]) -> None:
+    build = _jobs(workflow)["build"]
+    heavy = ("pmtiles", "sqlite", "gazetteer", "ukraine-", "data/work/extract", "data/work/layers", "data/raw")
+    for _, step in _uploads(build):
+        name = str(step["with"]["name"])
+        if name.startswith("dataset-"):
+            continue
+        paths = [line.strip() for line in str(step["with"]["path"]).splitlines() if line.strip()]
+        assert paths, name
+        for path in paths:
+            assert not any(word in path for word in heavy), (name, path)
+            # Лише метрики, маніфест і звіти воріт; ніколи ціла тека збірки чи її `.partial`.
+            assert path.endswith(("metrics.json", "manifest.json")) or path == "data/work/gates", (name, path)
+    assert not any(str(s["with"]["name"]).startswith("partial-") for _, s in _uploads(build))
+
+
+def test_diagnostics_are_uploaded_on_failure(workflow: dict[str, Any]) -> None:
+    build = _jobs(workflow)["build"]
+    diagnostics = [s for _, s in _uploads(build) if not str(s["with"]["name"]).startswith("dataset-")]
+    assert diagnostics
+    assert any("failure()" in str(s.get("if", "")) or "always()" in str(s.get("if", "")) for s in diagnostics)
+    names = {path.strip().rsplit("/", 1)[-1] for s in diagnostics for path in str(s["with"]["path"]).splitlines()}
+    assert {"metrics.json", "manifest.json", "gates"} <= names
+
+
+def test_release_notes_carry_licence_attribution(workflow: dict[str, Any]) -> None:
+    from pipeline.tiles import KATOTTG_LICENSOR
+
+    script = "\n".join(str(step.get("run", "")) for step in _jobs(workflow)["release"]["steps"])
+    for needle in ("OpenStreetMap contributors", "ODbL 1.0", KATOTTG_LICENSOR, "CC BY 4.0", "Natural Earth", "Wikidata", "CC0"):
+        assert needle in script, needle
 
 
 def test_release_only_after_successful_build_job(workflow: dict[str, Any]) -> None:
