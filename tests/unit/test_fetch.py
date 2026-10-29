@@ -209,3 +209,17 @@ def test_user_agent_is_sent(site: Site, tmp_path: Path, monkeypatch: pytest.Monk
 
     assert agents
     assert all(a.startswith("geo-quiz-data/0 (+https://github.com/") for a in agents)
+
+
+def test_mismatch_before_rename_keeps_existing_file_and_leaves_no_part(site: Site, tmp_path: Path) -> None:
+    dest = tmp_path / "raw" / "katottg" / "a.xlsx"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"previously verified")
+    wrong = hashlib.sha256(b"something else").hexdigest()
+
+    with pytest.raises(ChecksumMismatch):
+        fetch._download(f"{site.base}/a.xlsx", dest, expected_sha256=wrong)
+
+    assert dest.read_bytes() == b"previously verified"  # завантаження не підмінило файл
+    assert not dest.with_name(dest.name + ".part").exists()
+    assert sorted(p.name for p in dest.parent.iterdir()) == ["a.xlsx"]

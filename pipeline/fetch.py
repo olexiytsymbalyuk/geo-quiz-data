@@ -66,8 +66,12 @@ def osm_timestamp(pbf: Path) -> str:
     raise RuntimeError(f"osmium fileinfo не дав часу даних для {pbf.name}")
 
 
-def _download(url: str, dest: Path) -> dict[str, Any]:
-    """Потокове завантаження в `dest.part` → `os.replace`; повертає sha256, size і заголовки."""
+def _download(url: str, dest: Path, expected_sha256: str | None = None) -> dict[str, Any]:
+    """Потокове завантаження в `dest.part` → `replace`; повертає sha256, size і заголовки.
+
+    З `expected_sha256` сума перевіряється до перейменування: при розбіжності `ChecksumMismatch`,
+    `dest` не змінюється (раніше завантажений файл не перезаписується), `.part` видаляється.
+    """
     part = dest.with_name(dest.name + ".part")
     dest.parent.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256()
@@ -88,6 +92,8 @@ def _download(url: str, dest: Path) -> dict[str, Any]:
         expected = resp.headers.get("Content-Length")
         if expected is not None and resp.headers.get("Content-Encoding") is None and int(expected) != size:
             raise OSError(f"{url}: отримано {size} байт замість {expected}")
+        if expected_sha256 is not None and info["sha256"] != expected_sha256:
+            raise _mismatch(dest.name, info["sha256"], expected_sha256)
         part.replace(dest)
     except BaseException:
         part.unlink(missing_ok=True)
@@ -162,10 +168,7 @@ def _ensure_cached(dest: Path, url: str, expected: str, label: str) -> None:
         if actual != expected:
             raise _mismatch(label, actual, expected)
         return
-    info = _download(url, dest)
-    if info["sha256"] != expected:
-        dest.unlink()
-        raise _mismatch(label, info["sha256"], expected)
+    _download(url, dest, expected_sha256=expected)
 
 
 def main(argv: list[str] | None = None) -> int:
