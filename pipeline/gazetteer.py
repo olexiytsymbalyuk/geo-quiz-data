@@ -55,7 +55,8 @@ _PLACE_RANK = {"city": 0, "town": 1, "village": 2, "hamlet": 3}
 _OTHER_PLACE_RANK = len(_PLACE_RANK)
 _OSM_TYPE_LETTER = {"node": "n", "way": "w", "relation": "r"}
 _LAKE_KINDS = frozenset({"lake", "pond", "oxbow"})
-_LIMAN_PREFIX = "лиман"
+_LIMAN_WORD = "лиман"
+_NAME_WORD_SPLIT_RE = re.compile("[\\s\u2010-\u2015-]+")
 _QID_RE = re.compile(r"^Q\d+$")
 _DIGITS_RE = re.compile(r"^\d+$")
 _NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
@@ -254,7 +255,10 @@ def _index_osm(
 
 
 def _pick(group: list[_Candidate] | None, metrics: Counter[str]) -> tuple[_Candidate, tuple[float, float]] | None:
-    """Найкращий кандидат із непорожньою геометрією; решта групи -> `duplicate_katotth`."""
+    """Найкращий кандидат групи (ранг, node, менший id) і його точка; решта групи -> `duplicate_katotth`.
+
+    Якщо в найкращого немає придатної геометрії, повертає `None` (наступні кандидати не пробуються).
+    """
     if not group:
         return None
     metrics["duplicate_katotth"] += len(group) - 1
@@ -369,7 +373,7 @@ def _assign_chain_letters(
         try:
             letter = chain_letter(entity.names["uk"], startable[pool_tier])
         except ValueError as exc:
-            raise GazetteerError(f"у назві сутності {entity.id} немає літер алфавіту") from exc
+            raise GazetteerError(f"у назві сутності {entity.id} немає літер алфавіту") from None
         if letter not in startable[pool_tier]:
             metrics["chain_letter_not_startable"] += 1
         result.append(dataclasses.replace(entity, chain_letter=letter))
@@ -388,13 +392,15 @@ def _water_type(props: Mapping[str, Any], name: str) -> str | None:
     if props.get("natural") != "water":
         return None
     water = props.get("water")
-    if water == "lagoon" or name.lower().startswith(_LIMAN_PREFIX):
+    if water == "lagoon":
         return "liman"
-    if water in _LAKE_KINDS:
-        return "lake"
-    if water == "reservoir":
+    if water == "reservoir":  # теги мають пріоритет над назвою
         return "reservoir"
-    return None
+    if water is not None and water not in _LAKE_KINDS:
+        return None
+    if water in (None, "lake") and _LIMAN_WORD in _NAME_WORD_SPLIT_RE.split(name.lower()):
+        return "liman"
+    return "lake" if water in _LAKE_KINDS else None
 
 
 def _qid_of(props: Mapping[str, Any]) -> str | None:
@@ -456,7 +462,7 @@ def _peak_pieces(features: Iterable[Mapping[str, Any]], metrics: Counter[str]) -
 
 
 def _piece_entities(
-    groups: Mapping[str, list[_Piece]], guard: _NameGuard, version: str, *, with_geom_ref: bool
+    groups: Mapping[str, list[_Piece]], guard: _NameGuard, version: str, metrics: Counter[str], *, with_geom_ref: bool
 ) -> list[Entity]:
     entities: list[Entity] = []
     for entity_id in sorted(groups):
@@ -464,6 +470,8 @@ def _piece_entities(
         for piece in pieces:
             guard.check(piece.name, entity_id)
         first = pieces[0]
+        if len({piece.type for piece in pieces}) > 1:
+            metrics["water_mixed_type"] += 1
         point = _point(first.feature) if first.type == "peak" else None
         props = _props(first.feature)
         attributes: dict[str, Any] = {}
@@ -524,8 +532,8 @@ def build_gazetteer(
     entities = _assign_tiers(base, by_code, metrics)
     startable = _startable_by_tier(entities, policy.startable_min)
     entities = _assign_chain_letters(entities, startable, metrics)
-    entities += _piece_entities(_group_pieces(_water_pieces(osm_water, metrics)), guard, version, with_geom_ref=True)
-    entities += _piece_entities(_group_pieces(_peak_pieces(osm_peaks, metrics)), guard, version, with_geom_ref=False)
+    entities += _piece_entities(_group_pieces(_water_pieces(osm_water, metrics)), guard, version, metrics, with_geom_ref=True)
+    entities += _piece_entities(_group_pieces(_peak_pieces(osm_peaks, metrics)), guard, version, metrics, with_geom_ref=False)
     _check_unique(entities)
     return GazetteerResult(entities, _final_metrics(entities, metrics), startable, version)
 
@@ -541,6 +549,7 @@ _COUNTER_KEYS = (
     "population_none",
     "water_no_name",
     "water_other",
+    "water_mixed_type",
     "peak_no_name",
     "capital_unknown_code",
     "chain_letter_not_startable",

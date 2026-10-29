@@ -344,6 +344,50 @@ def test_water_types_and_skips() -> None:
     assert e.country == "UA" and e.scopes == ["ukraine"] and e.tiers == {} and e.chain_letter is None
 
 
+def test_liman_by_separate_word_and_tag_priority() -> None:
+    water = [
+        line(1, "Тилігульський лиман", natural="water"),
+        line(2, "Лиманський ставок", natural="water", water="lake"),
+        line(3, "Лиманське водосховище", natural="water", water="reservoir"),
+        line(4, "Лиман-1", natural="water", water="pond"),
+        line(5, "Лиманне господарство", natural="water"),
+        line(6, "Куяльницький ЛИМАН", natural="water", water="lake"),
+    ]
+    got = by_id(build(water=water))
+    assert got["osm:w1"].type == "liman"
+    assert got["osm:w2"].type == "lake"
+    assert got["osm:w3"].type == "reservoir"
+    assert got["osm:w4"].type == "lake"
+    assert "osm:w5" not in got  # префікс без окремого слова «лиман» — не лиман
+    assert got["osm:w6"].type == "liman"
+
+
+def test_water_mixed_type_counts_groups_with_different_types() -> None:
+    water = [
+        line(1, "Тест", waterway="river", wikidata="Q7"),
+        line(2, "Тест", waterway="canal", wikidata="Q7"),
+        line(3, "Інша", waterway="river", wikidata="Q8"),
+    ]
+    result = build(water=water)
+    assert result.metrics["water_mixed_type"] == 1
+    assert by_id(result)["wd:Q7"].type == "river"
+
+
+def test_population_exactly_100000_is_tier_one() -> None:
+    result = build(wd={MID: wd_item("Q5", population=100_000), BIG: wd_item("Q6", population=99_999)})
+    assert by_id(result)[f"ua:{MID}"].tiers == {"ukraine": 1}
+    assert by_id(result)[f"ua:{BIG}"].tiers == {"ukraine": 2}
+
+
+def test_write_scope_json_cleans_part_file_on_failure(tmp_path: Path) -> None:
+    target = tmp_path / "scope.json"
+    target.mkdir()
+    (target / "keep").write_text("x", encoding="utf-8")  # replace у непорожню теку впаде
+    with pytest.raises(OSError):
+        write_scope_json(build(), target)
+    assert not (tmp_path / "scope.json.part").exists()
+
+
 def test_water_pieces_with_same_wikidata_merge_into_one_entity() -> None:
     water = [
         line(30, "Тест", waterway="river", wikidata="Q100"),
@@ -495,7 +539,11 @@ def test_write_scope_json_has_only_listed_keys(tmp_path: Path) -> None:
 
 
 def test_write_sqlite_roundtrip(tmp_path: Path) -> None:
-    result = build(places=[pt(1, SEL, "town", 33.5, 49.5)], water=[line(1, "Річка", waterway="river")])
+    result = build(
+        places=[pt(1, SEL, "town", 33.5, 49.5)],
+        water=[line(1, "Річка", waterway="river")],
+        wd={SEL: wd_item("Q55", population=321)},
+    )
     path = tmp_path / "g.sqlite"
     write_sqlite(result, path)
     write_sqlite(result, path)  # перезапис без падіння
@@ -507,6 +555,15 @@ def test_write_sqlite_roundtrip(tmp_path: Path) -> None:
         assert json.loads(row[1]) == {"ukraine": 3}
         assert row[2] == 49.5 and row[3] == VERSION and json.loads(row[4]) == ["ukraine"]
         assert "Селищів" in row[0]  # ensure_ascii=False
+        assert "Селищів" in row[0]
+        ident = con.execute(
+            "select katottg, qid, osm_id, geom_ref, country, chain_letter, population, parents from entity where id = ?",
+            (f"ua:{SEL}",),
+        ).fetchone()
+        assert ident[:3] == (SEL, "Q55", "n1") and ident[4] == "UA" and ident[5] is not None
+        assert json.loads(ident[6]) == {"value": 321, "year": 2022, "source": "wikidata"}
+        assert json.loads(ident[7]) == [f"ua:{HRO}", f"ua:{RAI}", f"ua:{OBL}"]
+        assert con.execute("select geom_ref from entity where id = 'osm:w1'").fetchone() == ("osm:w1",)
         version, startable = con.execute("select dataset_version, startable_json from meta").fetchone()
         assert version == VERSION
         assert set(json.loads(startable)) == {"1", "2", "3", "4"}

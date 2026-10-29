@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sqlite3
 from pathlib import Path
@@ -11,6 +12,8 @@ from pipeline.gazetteer import Entity, GazetteerResult
 
 # Лише населені пункти й області потрапляють у JSON охоплення (пошук і гра «Міста»).
 SCOPE_JSON_TYPES = frozenset({"oblast", "city", "selyshche", "selo"})
+
+_COLUMNS = len(dataclasses.fields(Entity))
 
 _SCHEMA = """
 create table entity (
@@ -71,7 +74,7 @@ def write_sqlite(result: GazetteerResult, path: Path) -> None:
     con = sqlite3.connect(part)
     try:
         con.executescript(_SCHEMA)
-        con.executemany(f"insert into entity values ({','.join('?' * 23)})", (_row(e) for e in result.entities))
+        con.executemany(f"insert into entity values ({','.join('?' * _COLUMNS)})", (_row(e) for e in result.entities))
         con.execute("insert into meta values (?, ?)", (result.dataset_version, _json(startable_json(result))))
         con.commit()
     except BaseException:
@@ -104,5 +107,9 @@ def write_scope_json(result: GazetteerResult, path: Path) -> None:
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     part = path.with_name(path.name + ".part")
-    part.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
-    part.replace(path)
+    try:
+        part.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+        part.replace(path)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
