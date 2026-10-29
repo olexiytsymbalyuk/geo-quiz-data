@@ -1,0 +1,43 @@
+[project]
+name = "geo-quiz-data"
+version = "0.1.0"
+description = "Конвеєр даних атласу: КАТОТТГ + OSM + Wikidata → PMTiles і газетир"
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl>=3.1",
+    "duckdb>=1.0",
+    "shapely>=2.0",
+    "pyproj>=3.6",
+    "pyshp>=2.3",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "pmtiles>=3.2",
+    "mapbox-vector-tile>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.9",
+    "types-PyYAML",
+    "types-requests",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests/unit"]
+
+[tool.mypy]
+strict = true
+packages = ["pipeline"]
+
+[[tool.mypy.overrides]]
+module = ["shapely.*", "pyproj.*", "shapefile.*", "pmtiles.*", "mapbox_vector_tile.*", "openpyxl.*", "duckdb.*"]
+ignore_missing_imports = true
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pipeline*"]
