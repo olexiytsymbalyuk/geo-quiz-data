@@ -10,7 +10,6 @@ import gzip
 import hashlib
 import json
 import math
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +18,7 @@ from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import write
 
 from pipeline.policy import load_policy
+from tests.gates_selftest import tiny_world
 
 VERSION = "2099.01.1"
 EXTENT = 4096
@@ -33,7 +33,20 @@ VIOLATIONS: dict[str, str] = {
     "named_point_in_landmass": "test_no_neutral_country.py::test_no_named_feature_inside_neutral_landmass",
     "bad_sha256": "test_manifest.py::test_artifacts_match_manifest",
     "sources_mismatch": "test_manifest.py::test_manifest_sources_match_lock",
+    "crimea_country_ru": "test_crimea_is_ukraine.py::test_crimean_entities_are_ukrainian",
+    "crimea_land_hole": "test_crimea_is_ukraine.py::test_land_layer_covers_crimea",
+    "perekop_border_line": "test_crimea_is_ukraine.py::test_no_state_border_through_perekop",
+    "katottg_name_differs": "test_occupied_uses_katottg.py::test_names_equal_katottg",
+    "old_name_in_tiles": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
+    "districts_120": "test_counts.py::test_entity_count[raion]",
+    "outline_hole": "test_borders_full.py::test_land_outline_is_one_polygon",
+    "border_gap": "test_borders_full.py::test_state_border_has_no_gaps",
+    "border_off_natural_earth": "test_borders_full.py::test_border_matches_natural_earth",
+    "startable_soft_sign": "test_chain_letters.py::test_soft_sign_is_never_startable",
+    "chain_letter_outside_pool": "test_chain_letters.py::test_chain_letters_belong_to_effective_pool",
 }
+RAW_NAME = "raw"
+WORK_NAME = "work"
 LOCK_NAME = "sources.lock"
 NE_VERSION = "5.1.2"
 OSM_TIMESTAMP = "2099-01-01T00:00:00Z"
@@ -54,10 +67,49 @@ _TILE_Z10 = (10, *tile_xy(34.0, 45.0, 10))  # тайл у bbox Криму
 
 
 _TILE_Z8 = (8, *tile_xy(37.0, 51.0, 8))  # тайл z8 лише з нейтральною сушею: предок для правила (b) вибірки
+_TILE_PEREKOP = (10, *tile_xy(34.2, 46.05, 10))  # тайл z10 у прямокутнику Перекопу
+CRIMEA_HOLE = (1456, 1456, 2640, 2640)  # ≈ 2 × 2 км на широті 45°
+BORDER_HOLE = (3000, 3000, 3400, 3400)  # ≈ 0,38 км² на широті 50°
+BORDER_GAP = (1500, 2100)  # розрив level=0 ≈ 0,9 км на широті 50°
 
 
 def _box(x0: int, y0: int, x1: int, y1: int) -> str:
     return f"POLYGON(({x0} {y0},{x1} {y0},{x1} {y1},{x0} {y1},{x0} {y0}))"
+
+
+def _ring(x0: int, y0: int, x1: int, y1: int) -> str:
+    return f"({x0} {y0},{x1} {y0},{x1} {y1},{x0} {y1},{x0} {y0})"
+
+
+def _polygon_with_hole(outer: tuple[int, int, int, int], hole: tuple[int, int, int, int] | None) -> str:
+    holes = "" if hole is None else f",{_ring(*hole)}"
+    return f"POLYGON({_ring(*outer)}{holes})"
+
+
+def _line(x0: int, y0: int, x1: int, y1: int) -> str:
+    return f"LINESTRING({x0} {y0},{x1} {y1})"
+
+
+def _geo_tiles(violation: str | None) -> dict[tuple[int, int, int], list[dict[str, Any]]]:
+    """Крим (z12), межа з сусідом (z12) і Перекоп (z10): шари `land`, `landmass`, `admin_line`."""
+    edge = tiny_world.BORDER_EDGE_X
+    border_line = _line(edge, 0, edge, EXTENT)
+    if violation == "border_gap":
+        border_line = f"MULTILINESTRING(({edge} 0,{edge} {BORDER_GAP[0]}),({edge} {BORDER_GAP[1]},{edge} {EXTENT}))"
+    border_hole = BORDER_HOLE if violation == "outline_hole" else None
+    perekop = [{"geometry": _line(0, 1000, EXTENT, 1000), "properties": {"level": 1}}]
+    if violation == "perekop_border_line":
+        perekop.append({"geometry": _line(0, 1500, EXTENT, 1500), "properties": {"level": 0}})
+    crimea_hole = CRIMEA_HOLE if violation == "crimea_land_hole" else None
+    return {
+        tiny_world.CRIMEA_TILE: [{"name": "land", "features": [{"geometry": _polygon_with_hole((0, 0, EXTENT, EXTENT), crimea_hole), "properties": {}}]}],
+        tiny_world.BORDER_TILE: [
+            {"name": "landmass", "features": [{"geometry": _box(0, 0, edge, EXTENT), "properties": {"class": "neutral"}}]},
+            {"name": "land", "features": [{"geometry": _polygon_with_hole((edge, 0, EXTENT, EXTENT), border_hole), "properties": {}}]},
+            {"name": "admin_line", "features": [{"geometry": border_line, "properties": {"level": 0}}]},
+        ],
+        _TILE_PEREKOP: [{"name": "admin_line", "features": perekop}],
+    }
 
 
 def _place(fid: str, name: str, x: int, y: int) -> dict[str, Any]:
@@ -88,9 +140,12 @@ def _encode(layers: list[dict[str, Any]]) -> bytes:
 
 
 def _write_pmtiles(path: Path, violation: str | None, sentinel: str, version: str) -> None:
-    quiet = [{"name": "place", "features": [_place("ua:UA05000000000010357", "Вінниця", 2500, 1500)]}]
+    quiet_places = [_place("ua:UA05000000000010357", "Вінниця", 2500, 1500)]
+    if violation == "old_name_in_tiles":
+        quiet_places.append(_place("ua:UA05000000000010358", load_policy().renames_check[0].old, 2600, 1600))
+    quiet = [{"name": "place", "features": quiet_places}]
     land_only = [{"name": "landmass", "features": [{"geometry": _box(0, 0, EXTENT, EXTENT), "properties": {"class": "neutral"}}]}]
-    tiles = {_TILE_Z5: _tile_layers(violation, sentinel), _TILE_Z10: quiet, _TILE_Z8: land_only}
+    tiles = {_TILE_Z5: _tile_layers(violation, sentinel), _TILE_Z10: quiet, _TILE_Z8: land_only, **_geo_tiles(violation)}
     header = {
         "version": 3,
         "tile_compression": Compression.GZIP,
@@ -108,28 +163,6 @@ def _write_pmtiles(path: Path, violation: str | None, sentinel: str, version: st
         for zxy in sorted(tiles, key=lambda t: zxy_to_tileid(*t)):
             writer.write_tile(zxy_to_tileid(*zxy), _encode(tiles[zxy]))
         writer.finalize(header, metadata)
-
-
-def _names(uk: str, extra: dict[str, Any] | None = None) -> str:
-    base = {"uk": uk, "en": None, "uk_aliases": [], "en_aliases": [], "local": None, "former": []}
-    return json.dumps({**base, **(extra or {})}, ensure_ascii=False, sort_keys=True)
-
-
-def _write_sqlite(path: Path, version: str) -> None:
-    con = sqlite3.connect(path)
-    con.executescript(
-        "create table entity (id text primary key, type text not null, names text not null, country text not null,"
-        " facts text not null, attributes text not null, dataset_version text not null);"
-        "create table meta (dataset_version text not null, startable_json text not null);"
-    )
-    rows = [
-        ("ua:UA80000000000093317", "city", _names(_KYIV), "UA", "[]", "{}", version),
-        ("ua:UA05000000000010357", "city", _names("Вінниця"), "UA", "[]", "{}", version),
-    ]
-    con.executemany("insert into entity values (?,?,?,?,?,?,?)", rows)
-    con.execute("insert into meta values (?, ?)", (version, "{}"))
-    con.commit()
-    con.close()
 
 
 def _write_json(path: Path, version: str) -> None:
@@ -157,6 +190,16 @@ def lock_path(dataset: Path) -> Path:
     return dataset.parent / LOCK_NAME
 
 
+def raw_path(dataset: Path) -> Path:
+    """Крихітні еталони (аналог `data/raw`) — поза текою релізу, щоб не потрапити в перелік маніфесту."""
+    return dataset.parent / RAW_NAME
+
+
+def work_path(dataset: Path) -> Path:
+    """Куди ворота пишуть свої звіти (аналог `data/work/gates`)."""
+    return dataset.parent / WORK_NAME
+
+
 def build_dataset(root: Path, violation: str | None = None, version: str = VERSION) -> Path:
     """Збирає `root/<версія>/` з п'ятьма файлами; `violation=None` — «добрий» датасет, усі ворота зелені."""
     if violation is not None and violation not in VIOLATIONS:
@@ -165,7 +208,10 @@ def build_dataset(root: Path, violation: str | None = None, version: str = VERSI
     out = root / version
     out.mkdir(parents=True)
     _write_pmtiles(out / f"ukraine-{version}.pmtiles", violation, sentinel, version)
-    _write_sqlite(out / f"gazetteer-{version}.sqlite", version)
+    entities, startable = tiny_world.apply_violation(violation, *tiny_world.good_world(version))
+    tiny_world.write_gazetteer(out / f"gazetteer-{version}.sqlite", entities, startable, version)
+    shift = tiny_world.NE_EDGE_SHIFT if violation == "border_off_natural_earth" else 0
+    tiny_world.write_raw(raw_path(out), tiny_world.good_world(version)[0], ne_shift_units=shift)  # еталон КАТОТТГ — добрий
     _write_json(out / f"gazetteer-ukraine-{version}.json", version)
     (out / "metrics.json").write_text(
         json.dumps({"dataset_version": version, "neutral_country_ids": list(NEUTRAL_COUNTRY_IDS)}), encoding="utf-8"

@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 import yaml
 
-from pipeline.paths import ROOT
+from pipeline.paths import RAW, ROOT, WORK
 from pipeline.policy import load_policy
 from tests.gates.gate_support import (
     MANIFEST_NAME,
@@ -26,6 +26,8 @@ from tests.gates.gate_support import (
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--lock", action="store", default=None, help="config/sources.lock (за замовчуванням з кореня репозиторію)")
     parser.addoption("--dataset", action="store", default=None, help="тека релізу dist/<версія>/ (обов'язково)")
+    parser.addoption("--raw", action="store", default=None, help="тека еталонів data/raw (КАТОТТГ, NE, маска суші)")
+    parser.addoption("--gates-out", action="store", default=None, help="тека звітів воріт (за замовчуванням data/work/gates)")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -42,6 +44,24 @@ def dataset_dir(request: pytest.FixtureRequest) -> Path:
     path = Path(request.config.getoption("--dataset")).resolve()
     if not path.is_dir():
         raise pytest.UsageError(f"--dataset: {path.name} не є текою")
+    return path
+
+
+@pytest.fixture(scope="session")
+def raw_dir(request: pytest.FixtureRequest) -> Path:
+    """Тека сирих еталонів: ворота читають КАТОТТГ, NE і маску суші, а не артефакти релізу."""
+    option = request.config.getoption("--raw")
+    path = Path(option).resolve() if option else RAW
+    if not path.is_dir():
+        raise pytest.UsageError(f"--raw: {path.name} не є текою")
+    return path
+
+
+@pytest.fixture(scope="session")
+def gates_out(request: pytest.FixtureRequest) -> Path:
+    option = request.config.getoption("--gates-out")
+    path = Path(option).resolve() if option else WORK / "gates"
+    path.mkdir(parents=True, exist_ok=True)
     return path
 
 
