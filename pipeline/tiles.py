@@ -19,9 +19,11 @@ from pipeline.tools import ToolRun, ensure_image, run_tool
 MIN_ZOOM = 3
 MAX_ZOOM = 12
 TILESET_NAME = "ukraine"  # ідентифікатор охоплення; без шляхів контейнера в метаданих
+# Єдина назва ліцензіара КАТОТТГ (CC BY 4.0): її ж мають містити sources.yaml, README і нотатки релізу.
+KATOTTG_LICENSOR = "Міністерство розвитку громад та територій України (Мінрозвитку)"
 ATTRIBUTION = (
-    "© учасники OpenStreetMap (ODbL); КАТОТТГ, Мінрозвитку (CC BY 4.0); Natural Earth (суспільне надбання); "
-    "Wikidata (CC0)"
+    f"© учасники OpenStreetMap (ODbL); КАТОТТГ, {KATOTTG_LICENSOR} (CC BY 4.0); "
+    "Natural Earth (суспільне надбання); Wikidata (CC0)"
 )
 FIRST_SCREEN_MAX_ZOOM = 6  # бюджет першого екрана мапи — тайли z3–z6 екстенту України
 _LAYERS_MOUNT = "/layers"

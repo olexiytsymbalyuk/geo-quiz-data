@@ -12,7 +12,7 @@ from pmtiles.tile import Compression, TileType, zxy_to_tileid
 from pmtiles.writer import write
 
 from pipeline import tiles
-from pipeline.tiles import ATTRIBUTION, read_metadata, run_tippecanoe, stamp_metadata, tile_stats
+from pipeline.tiles import ATTRIBUTION, KATOTTG_LICENSOR, read_metadata, run_tippecanoe, stamp_metadata, tile_stats
 from pipeline.tools import ToolRun
 
 TILE_A = gzip.compress(b"tile-a", mtime=0)
@@ -133,6 +133,14 @@ def test_tile_stats_reports_max_size_per_zoom_and_first_screen_budget(tmp_path: 
 def test_attribution_names_all_sources() -> None:
     for source in ("OpenStreetMap", "КАТОТТГ", "Natural Earth", "Wikidata"):
         assert source in ATTRIBUTION
+
+
+def test_katottg_licensor_is_one_name_in_attribution_sources_and_readme() -> None:
+    root = Path(__file__).resolve().parents[2]
+    assert KATOTTG_LICENSOR in ATTRIBUTION
+    assert KATOTTG_LICENSOR in (root / "README.md").read_text(encoding="utf-8")
+    assert KATOTTG_LICENSOR in (root / "config" / "sources.yaml").read_text(encoding="utf-8")
+    assert "Мінінфраструктури" not in (root / "README.md").read_text(encoding="utf-8")
 
 
 def test_run_tippecanoe_builds_the_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

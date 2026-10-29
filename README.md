@@ -113,7 +113,7 @@ uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o r
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Geofabrik, Ukraine PBF) | пункти, адмінполігони, вода, вершини, `name:uk` | ODbL 1.0 — © OpenStreetMap contributors |
 | [OSM land polygons](https://osmdata.openstreetmap.de/data/land-polygons.html) (osmdata.openstreetmap.de; обрізана похідна) | берегова лінія: маска суші для контуру | ODbL 1.0 — © OpenStreetMap contributors |
 | [Natural Earth](https://www.naturalearthdata.com/) 5.1.2 | кордони за POV України, фізична географія, озера, річки | public domain |
-| [КАТОТТГ](https://mininfra.gov.ua/diialnist/rozvytok-mistsevoho-samovriaduvannia/kodyfikator-administratyvno-terytorialnykh-odynyts-ta-terytorii-terytorialnykh-hromad) (Мінінфраструктури) | офіційні назви, категорії, ієрархія, коди | CC BY 4.0 (підтверджено на mininfra.gov.ua 29.10.2026) |
+| [КАТОТТГ](https://mininfra.gov.ua/diialnist/rozvytok-mistsevoho-samovriaduvannia/kodyfikator-administratyvno-terytorialnykh-odynyts-ta-terytorii-terytorialnykh-hromad) (Міністерство розвитку громад та територій України (Мінрозвитку)) | офіційні назви, категорії, ієрархія, коди | CC BY 4.0 (підтверджено на mininfra.gov.ua 29.10.2026) |
 | [Wikidata](https://www.wikidata.org/) | P9435 (KATOTTH ID), населення, координати, лейбли й аліаси uk/en | CC0 |
 | [GeoNames](https://www.geonames.org/) | точки, населення, feature codes, альтернативні назви | CC BY 4.0 |
 

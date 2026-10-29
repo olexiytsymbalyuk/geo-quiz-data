@@ -3,7 +3,7 @@
 # записати час даних PBF (osmium fileinfo -e). Wikidata тут немає: її кеш має дату запиту в імені.
 sources:
   katottg:
-    license: CC BY 4.0  # відкриті дані, кодифікатор: наказ Мінрозвитку № 1321 від 07.07.2026
+    license: CC BY 4.0  # відкриті дані, ліцензіар: Міністерство розвитку громад та територій України (Мінрозвитку); кодифікатор: наказ № 1321 від 07.07.2026
     files:
       - name: kodifikator-07-07.xlsx
         url: https://mindev.gov.ua/storage/app/sites/1/uploaded-files/kodifikator-07-07.xlsx
