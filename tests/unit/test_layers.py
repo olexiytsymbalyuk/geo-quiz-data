@@ -82,6 +82,8 @@ ADMIN_FEATURES = [
 
 LAKE_BIG = box(2, 2, 2.06, 2.06)  # ≈ 44 км²
 LAKE_SMALL = box(3, 3, 3.03, 3.03)  # ≈ 11 км²
+LAKE_EDGE = box(9.5, 5, 10.5, 5.5)  # половина лежить за контуром
+LAKE_OUTSIDE = box(20, 20, 20.5, 20.5)
 WATER_FEATURES = [
     _way(10, LAKE_BIG, natural="water", **{"name:uk": "Велике", "wikidata": "Q10"}),
     _way(11, LAKE_SMALL, natural="water", **{"name:uk": "Мале"}),
@@ -91,6 +93,8 @@ WATER_FEATURES = [
     _way(15, LineString([(2, 7), (2.6, 7)]), waterway="river", **{"name:uk": "Два шматки", "wikidata": "Q14"}),
     _way(16, LineString([(1, 8), (1.5, 8)]), waterway="river", **{"name:uk": "Коротка"}),
     _way(17, LineString([(20, 20), (21, 20)]), waterway="river", **{"name:uk": "Далеко"}),  # увесь поза контуром
+    _way(18, LAKE_EDGE, natural="water", **{"name:uk": "На краю"}),  # перетинає край контуру x = 10
+    _way(19, LAKE_OUTSIDE, natural="water", **{"name:uk": "Поза контуром"}),  # цілком поза контуром
 ]
 
 CENTRE = "UA01020010010000010"
@@ -123,6 +127,8 @@ def _gazetteer() -> GazetteerResult:
         _settlement(SELO_NO_POINT, "selo", "Село без точки", 4, None),
         _entity("wd:Q10", "lake", "Велике", qid="Q10"),
         _entity("osm:w11", "lake", "Мале"),
+        _entity("osm:w18", "lake", "На краю"),
+        _entity("osm:w19", "lake", "Поза контуром"),
         _entity("osm:w13", "river", "Виходить"),
         _entity("wd:Q14", "river", "Два шматки", qid="Q14"),
         _entity("osm:w16", "river", "Коротка"),
@@ -149,9 +155,12 @@ COUNTRIES: list[Feature] = [
 ]
 
 
+NEUTRAL_IDS = frozenset({"wd:Q159", "wd:Q184"})  # RU, BY у NE
+
+
 @pytest.fixture
 def layers(tmp_path: Path, osm_dir: Path) -> dict[str, list[dict[str, Any]]]:
-    paths = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, out_dir=tmp_path / "layers")
+    paths = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, neutral_ids=NEUTRAL_IDS, out_dir=tmp_path / "layers")
     return {name: list(read_layer(path)) for name, path in paths.items()}
 
 
@@ -230,7 +239,7 @@ def test_make_feature_allows_a_subset_and_an_empty_land() -> None:
 
 def test_build_layers_returns_a_geojsonseq_file_per_layer(tmp_path: Path, osm_dir: Path) -> None:
     out = tmp_path / "layers"
-    paths = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, out_dir=out)
+    paths = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, neutral_ids=NEUTRAL_IDS, out_dir=out)
     assert set(paths) == set(LAYER_WHITELIST)
     for name, path in paths.items():
         assert path == out / f"{name}.geojsonl"
@@ -259,6 +268,15 @@ def test_land_landmass_and_country_pass_through_at_z4(layers: dict[str, list[dic
         {"id": "wd:Q219"},
     ]
     assert {_zoom(f) for f in layers["country"]} == {4}
+
+
+def test_build_layers_refuses_a_neutral_country_in_the_country_layer(tmp_path: Path, osm_dir: Path) -> None:
+    leaking: list[Feature] = [*COUNTRIES, {"geometry": MultiPolygon([box(10, 0, 12, 10)]), "properties": {"id": "wd:Q159"}}]
+    with pytest.raises(WhitelistError) as info:
+        build_layers(
+            _gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, leaking, osm_dir, neutral_ids=NEUTRAL_IDS, out_dir=tmp_path / "l"
+        )
+    assert "Q159" not in str(info.value)  # id нейтральної країни в повідомлення не потрапляє
 
 
 def test_place_kinds_and_minzooms(layers: dict[str, list[dict[str, Any]]]) -> None:
@@ -331,10 +349,27 @@ def test_water_goes_to_water_and_waterway_by_geometry_with_entity_kind(
     layers: dict[str, list[dict[str, Any]]],
 ) -> None:
     water = _by_id(layers["water"])
-    assert set(water) == {"wd:Q10", "osm:w11"}  # безіменна й чужа водойма не потрапили
+    assert set(water) == {"wd:Q10", "osm:w11", "osm:w18"}  # безіменна, чужа й позаконтурна водойми не потрапили
     assert water["wd:Q10"]["properties"] == {"id": "wd:Q10", "name:uk": "Велике", "kind": "lake"}
     assert {f["properties"]["id"] for f in layers["waterway"]} == {"osm:w13", "wd:Q14", "osm:w16"}  # «Далеко» поза
     assert {f["properties"]["kind"] for f in layers["waterway"]} == {"river"}
+
+
+def test_water_polygon_crossing_the_outline_is_clipped_to_the_intersection(
+    layers: dict[str, list[dict[str, Any]]],
+) -> None:
+    lake = shape(_by_id(layers["water"])["osm:w18"]["geometry"])
+    assert lake.area == pytest.approx(LAKE_EDGE.intersection(OUTLINE).area)  # 0,5 × 0,5 = 0,25
+    assert lake.area < LAKE_EDGE.area
+    assert OUTLINE.buffer(1e-9).contains(lake)
+
+
+def test_water_polygon_outside_the_outline_is_dropped_without_empty_geometry(
+    layers: dict[str, list[dict[str, Any]]],
+) -> None:
+    assert "osm:w19" not in _by_id(layers["water"])
+    for feature in layers["water"]:
+        assert not shape(feature["geometry"]).is_empty
 
 
 def test_water_minzoom_by_area(layers: dict[str, list[dict[str, Any]]]) -> None:
@@ -366,7 +401,7 @@ def test_peak_layer(layers: dict[str, list[dict[str, Any]]]) -> None:
 
 
 def test_build_layers_is_deterministic(tmp_path: Path, osm_dir: Path) -> None:
-    first = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, out_dir=tmp_path / "a")
-    second = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, out_dir=tmp_path / "b")
+    first = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, neutral_ids=NEUTRAL_IDS, out_dir=tmp_path / "a")
+    second = build_layers(_gazetteer(), OUTLINE, BORDER, NEUTRAL_LAND, COUNTRIES, osm_dir, neutral_ids=NEUTRAL_IDS, out_dir=tmp_path / "b")
     for name in first:
         assert first[name].read_bytes() == second[name].read_bytes(), name

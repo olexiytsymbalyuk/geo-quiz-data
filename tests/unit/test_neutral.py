@@ -9,7 +9,7 @@ import shapefile
 from shapely.geometry import MultiPolygon, box
 from shapely.geometry.base import BaseGeometry
 
-from pipeline.neutral import CLIP_MARGIN_DEG, build_countries, build_landmass
+from pipeline.neutral import CLIP_MARGIN_DEG, build_countries, build_landmass, neutral_country_ids
 from pipeline.policy import Policy
 
 OUTLINE = MultiPolygon([box(0, 0, 10, 10)])
@@ -157,3 +157,14 @@ def test_landmass_subtracts_the_outline_where_neutral_land_overlaps_it(tmp_path:
     geometry = feature["geometry"]
     assert geometry.intersection(OUTLINE).area < 1e-9
     assert geometry.area == pytest.approx(2 * 10)
+
+
+def test_neutral_country_ids_are_wikidata_ids_of_nearby_neutral_countries_only(tmp_path: Path) -> None:
+    ne = _write_ne(tmp_path, _rows())
+    assert neutral_country_ids(ne, OUTLINE, NEUTRAL) == frozenset({"wd:Q159", "wd:Q184"})
+
+
+def test_countries_never_contain_a_neutral_country_id(tmp_path: Path) -> None:
+    ne = _write_ne(tmp_path, _rows())
+    ids = {str(f["properties"]["id"]) for f in build_countries(ne, OUTLINE, _policy())}
+    assert ids.isdisjoint(neutral_country_ids(ne, OUTLINE, NEUTRAL))

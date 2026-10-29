@@ -77,7 +77,19 @@ def test_stamp_metadata_keeps_header_geography_and_compression(tmp_path: Path) -
 
     with src.open("rb") as a, dst.open("rb") as b:
         before, after = Reader(MmapSource(a)).header(), Reader(MmapSource(b)).header()
-    for key in ("tile_compression", "tile_type", "min_zoom", "max_zoom", "min_lon_e7", "max_lat_e7", "center_zoom"):
+    for key in (
+        "tile_compression",
+        "tile_type",
+        "min_zoom",
+        "max_zoom",
+        "min_lon_e7",
+        "min_lat_e7",
+        "max_lon_e7",
+        "max_lat_e7",
+        "center_zoom",
+        "center_lon_e7",
+        "center_lat_e7",
+    ):
         assert after[key] == before[key], key
 
 

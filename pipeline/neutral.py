@@ -57,6 +57,14 @@ def _neutral_union(ne_shp: Path, window: BaseGeometry, neutral: frozenset[str]) 
     return unary_union(parts) if parts else MultiPolygon()
 
 
+def neutral_country_ids(ne_shp: Path, outline: MultiPolygon, neutral: frozenset[str]) -> frozenset[str]:
+    """`wd:<QID>` нейтральних країн NE біля контуру: другий бар'єр для шару `country` (`build_layers`)."""
+    window = _clip_box(outline)
+    return frozenset(
+        f"wd:{wikidata}" for iso, wikidata, _, _ in _nearby_countries(ne_shp, window) if iso in neutral and wikidata
+    )
+
+
 def build_landmass(ne_shp: Path, outline: MultiPolygon, neutral: frozenset[str]) -> list[Feature]:
     """Нейтральна суша: одна об'єднана геометрія всіх нейтральних країн мінус контур.
 

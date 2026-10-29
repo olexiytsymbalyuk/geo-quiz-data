@@ -296,6 +296,12 @@ def _passthrough(layer: str, source: Iterable[Feature]) -> list[dict[str, Any]]:
     return [make_feature(layer, f["geometry"], f["properties"], MIN_LAYER_ZOOM) for f in source]
 
 
+def _check_no_neutral_country(countries: Iterable[Feature], neutral_ids: frozenset[str]) -> None:
+    """Нейтральна країна в шарі `country` — порушення правила 2.1; в повідомленні id немає."""
+    if any(feature["properties"].get("id") in neutral_ids for feature in countries):
+        raise WhitelistError("шар country містить нейтральну країну")
+
+
 def _write_layer(path: Path, features: Iterable[dict[str, Any]]) -> None:
     with path.open("w", encoding="utf-8") as sink:
         for feature in features:
@@ -309,9 +315,15 @@ def build_layers(
     landmass: Sequence[Feature],
     countries: Sequence[Feature],
     osm: Path,
+    *,
+    neutral_ids: frozenset[str],
     out_dir: Path | None = None,
 ) -> dict[str, Path]:
-    """GeoJSONSeq на шар у `out_dir` (типово `data/work/layers/`); `osm` — тека витягу (`admin`, `water`)."""
+    """GeoJSONSeq на шар у `out_dir` (типово `data/work/layers/`); `osm` — тека витягу (`admin`, `water`).
+
+    `neutral_ids` — `wd:<QID>` нейтральних країн NE: другий бар'єр, `country` з таким `id` валить збірку.
+    """
+    _check_no_neutral_country(countries, neutral_ids)
     target = WORK / "layers" if out_dir is None else out_dir
     target.mkdir(parents=True, exist_ok=True)
     entities = gazetteer.entities
@@ -361,7 +373,7 @@ def run_real(version: str) -> dict[str, Any]:
     from shapely.ops import unary_union
 
     from pipeline.gazetteer import build_from_cache
-    from pipeline.neutral import build_countries, build_landmass
+    from pipeline.neutral import build_countries, build_landmass, neutral_country_ids
     from pipeline.outline import build_outline, load_land_mask, state_border
     from pipeline.paths import RAW
     from pipeline.policy import load_policy
@@ -400,7 +412,8 @@ def run_real(version: str) -> dict[str, Any]:
     timed("neutral", started)
 
     started = time.monotonic()
-    paths = build_layers(gazetteer, outline, border, landmass, countries, osm)
+    neutral_ids = neutral_country_ids(RAW / _NE_SHP, outline, policy.neutral_countries)
+    paths = build_layers(gazetteer, outline, border, landmass, countries, osm, neutral_ids=neutral_ids)
     timed("layers", started)
     steps["features_by_layer"] = {name: sum(1 for _ in read_layer(path)) for name, path in paths.items()}
     steps["admin_without_polygon"] = sum(
