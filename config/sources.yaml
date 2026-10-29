@@ -1,0 +1,38 @@
+# Що завантажує `python -m pipeline.fetch` (кеш: data/raw/<джерело>/<файл>). Підсумкові суми — у sources.lock.
+# `license` іде в маніфест релізу; `main` — файл, який конвеєр читає; `osm_timestamp: true` —
+# записати час даних PBF (osmium fileinfo -e). Wikidata тут немає: її кеш має дату запиту в імені.
+sources:
+  katottg:
+    license: CC BY 4.0  # відкриті дані, кодифікатор: наказ Мінрозвитку № 1321 від 07.07.2026
+    files:
+      - name: kodifikator-07-07.xlsx
+        url: https://mindev.gov.ua/storage/app/sites/1/uploaded-files/kodifikator-07-07.xlsx
+
+  osm_ukraine:
+    license: ODbL 1.0  # © OpenStreetMap contributors
+    osm_timestamp: true
+    files:
+      - name: ukraine-latest.osm.pbf
+        url: https://download.geofabrik.de/europe/ukraine-latest.osm.pbf
+
+  ne_admin0_ukr:
+    license: Public Domain  # Natural Earth
+    main: ne_10m_admin_0_countries_ukr.shp
+    # Тега v5.2.0 у nvkelso/natural-earth-vector немає (останній — v5.1.2); `.cpg` у репозиторії немає.
+    files:
+      - name: ne_10m_admin_0_countries_ukr.shp
+        url: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/10m_cultural/ne_10m_admin_0_countries_ukr.shp
+      - name: ne_10m_admin_0_countries_ukr.shx
+        url: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/10m_cultural/ne_10m_admin_0_countries_ukr.shx
+      - name: ne_10m_admin_0_countries_ukr.dbf
+        url: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/10m_cultural/ne_10m_admin_0_countries_ukr.dbf
+      - name: ne_10m_admin_0_countries_ukr.prj
+        url: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/10m_cultural/ne_10m_admin_0_countries_ukr.prj
+      - name: ne_10m_admin_0_countries_ukr.VERSION.txt
+        url: https://raw.githubusercontent.com/nvkelso/natural-earth-vector/v5.1.2/10m_cultural/ne_10m_admin_0_countries_ukr.VERSION.txt
+
+  land_polygons:
+    license: ODbL 1.0  # © OpenStreetMap contributors; osmdata.openstreetmap.de
+    files:
+      - name: land-polygons-split-4326.zip
+        url: https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip
