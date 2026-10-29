@@ -86,9 +86,15 @@ python -m pipeline.land_clip --write-lock   # -> data/release-assets/ (gitignore
 gh release upload sources-2026-10 data/release-assets/land-polygons-split-4326-ukraine.zip --clobber
 ```
 
-Вихід відтворюваний байт у байт (відсортовані записи, координати без округлення, зафіксовані дата dbf і метадані zip);
-`load_land_mask` відмовляє на bbox поза обрізкою. Нове вивантаження osmdata — це нова пара `derived_from` у
-`config/sources.yaml` (url, sha256, size оригіналу) і новий тег `sources-YYYY-MM`.
+Вихід відтворюваний байт у байт **в одному середовищі**: записи відсортовано, координати без округлення, дата dbf і метадані
+zip зафіксовані, але вміст deflate залежить від версії zlib, а shp/dbf — від pyshp. Актив у релізі зроблено з pyshp 3.1.6,
+zlib 1.2.12, Python 3.11.14 (macOS arm64); справжня гарантія — sha256 асета в `sources.lock`, його перевіряє кожен fetch.
+Нове виробництво в іншому середовищі може дати інші байти (той самий вміст полігонів) — тоді нова пара sha256 у lock
+і новий asset. `load_land_mask` відмовляє на bbox поза обрізкою й перерозпаковує кеш, якщо архів під тим самим іменем змінився.
+`python -m pipeline.fetch --update` запис land_polygons не переписує (лише перевіряє) — його пише тільки
+`python -m pipeline.land_clip --write-lock`; посилання-редіректи на інші хости (підписані URL GitHub) у lock не потрапляють.
+Нове вивантаження osmdata — це нова пара `derived_from` у `config/sources.yaml` (url, sha256, size оригіналу) і новий
+тег `sources-YYYY-MM`.
 
 ### Залежності
 

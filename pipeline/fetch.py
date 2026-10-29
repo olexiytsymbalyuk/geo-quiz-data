@@ -18,6 +18,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 import yaml
@@ -85,7 +86,8 @@ def _download(url: str, dest: Path, expected_sha256: str | None = None) -> dict[
                     digest.update(chunk)
                     size += len(chunk)
             info: dict[str, Any] = {"sha256": digest.hexdigest(), "size": size}
-            if resp.url != url:
+            if resp.url != url and _same_host(url, resp.url):
+                # Редирект на інший хост (підписаний URL релізів GitHub) спливає за хвилини -- у lock не пишемо.
                 info["resolved_url"] = resp.url
             if "Last-Modified" in resp.headers:
                 info["last_modified"] = resp.headers["Last-Modified"]
@@ -101,8 +103,14 @@ def _download(url: str, dest: Path, expected_sha256: str | None = None) -> dict[
     return info
 
 
-def _read_lock(lock: Path) -> dict[str, Any]:
+def _same_host(first: str, second: str) -> bool:
+    return urlsplit(first).hostname == urlsplit(second).hostname
+
+
+def _read_lock(lock: Path, required: bool = True) -> dict[str, Any]:
     if not lock.exists():
+        if not required:
+            return {}
         raise LockError(f"{lock} відсутній; створіть його: python -m pipeline.fetch --update")
     data = yaml.safe_load(lock.read_text(encoding="utf-8")) or {}
     sources: dict[str, Any] = data.get("sources", {})
@@ -116,13 +124,14 @@ def _mismatch(name: str, actual: str, expected: str) -> ChecksumMismatch:
 def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dict[str, Path]:
     """Приводить `raw` у відповідність до `sources` і повертає головний файл кожного джерела.
 
-    Без `update`: файл з кешу або завантаження (з `resolved_url` із lock, якщо він є, бо `url` може
+    Без `update`: файл з кешу (з хибною сумою -- видаляється й завантажується заново) або завантаження (з `resolved_url` із lock, якщо він є, бо `url` може
     бути рухомим `-latest`); sha256 мусить збігтися з `lock`, інакше `ChecksumMismatch`
     (завантажений файл із хибною сумою не лишається в кеші).
-    З `update`: усе завантажується наново, `lock` переписується.
+    З `update`: усе завантажується наново, `lock` переписується; похідні файли (`derived_from`) лише перевіряються --
+    їхній запис у lock належить `pipeline.land_clip --write-lock`.
     """
     config: dict[str, Any] = yaml.safe_load(sources.read_text(encoding="utf-8"))["sources"]
-    locked = {} if update else _read_lock(lock)
+    locked = _read_lock(lock, required=not update)
     new_lock: dict[str, Any] = {}
     result: dict[str, Path] = {}
 
@@ -133,8 +142,10 @@ def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dic
             fname, url = item["name"], item["url"]
             dest = raw / source / fname
             label = f"{source}/{fname}"
-            if update:
-                entries[fname] = _fetch_fresh(dest, url, spec, item.get("derived_from"))
+            if update and "derived_from" in item:
+                entries[fname] = _verify_derived(dest, item, locked.get(source, {}).get("files", {}).get(fname), label)
+            elif update:
+                entries[fname] = _fetch_fresh(dest, url, spec)
             else:
                 entry = locked.get(source, {}).get("files", {}).get(fname)
                 if entry is None:
@@ -157,12 +168,21 @@ def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dic
     return result
 
 
-def _fetch_fresh(dest: Path, url: str, spec: dict[str, Any], derived_from: dict[str, Any] | None) -> dict[str, Any]:
+def _verify_derived(dest: Path, item: dict[str, Any], entry: dict[str, Any] | None, label: str) -> dict[str, Any]:
+    """Похідний файл (pipeline.land_clip) під `--update` не переписується: його запис у lock пише лише
+    `python -m pipeline.land_clip --write-lock`. Тут лише перевіряється, що lock і файл узгоджені з `sources.yaml`."""
+    if entry is None:
+        raise LockError(f"{label} немає в lock; запис похідного файла пише python -m pipeline.land_clip --write-lock")
+    if entry["url"] != item["url"] or entry.get("derived_from") != item["derived_from"]:
+        raise LockError(f"{label}: url чи derived_from у lock інші, ніж у sources.yaml; python -m pipeline.land_clip --write-lock")
+    _ensure_cached(dest, entry.get("resolved_url", entry["url"]), entry["sha256"], label)
+    return entry
+
+
+def _fetch_fresh(dest: Path, url: str, spec: dict[str, Any]) -> dict[str, Any]:
     fetched_at = _utc_now()
     info = _download(url, dest)
     entry: dict[str, Any] = {"url": url, "fetched_at": fetched_at, **info}
-    if derived_from is not None:
-        entry["derived_from"] = derived_from  # походження похідного файла (pipeline.land_clip): url і sha256 оригіналу, bbox
     if spec.get("osm_timestamp"):
         entry["osm_timestamp"] = osm_timestamp(dest)
     return entry
@@ -170,10 +190,9 @@ def _fetch_fresh(dest: Path, url: str, spec: dict[str, Any], derived_from: dict[
 
 def _ensure_cached(dest: Path, url: str, expected: str, label: str) -> None:
     if dest.exists():
-        actual = sha256_of(dest)
-        if actual != expected:
-            raise _mismatch(label, actual, expected)
-        return
+        if sha256_of(dest) == expected:
+            return
+        dest.unlink()  # зіпсований чи застарілий кеш -- свіже завантаження; хибна сума й там дасть ChecksumMismatch
     _download(url, dest, expected_sha256=expected)
 
 

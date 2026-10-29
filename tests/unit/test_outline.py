@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -102,14 +103,44 @@ def test_load_land_mask_reads_only_polygons_in_bbox(tmp_path: Path) -> None:
     assert not mask.intersects(outside)
 
 
-def test_load_land_mask_works_again_from_the_extracted_cache(tmp_path: Path) -> None:
+def test_load_land_mask_reuses_the_extracted_cache_for_the_same_archive(tmp_path: Path) -> None:
     zip_path = tmp_path / "land.zip"
     _write_land_zip(zip_path, [box(30, 48, 31, 49)])
     bbox = (22.1, 44.3, 40.3, 52.4)
     first = load_land_mask(zip_path, bbox)
-    zip_path.unlink()  # кеш уже розпаковано поруч — архів не потрібен
-    second = load_land_mask(zip_path.with_name("land.zip"), bbox)
+    shp = zip_path.with_suffix("") / "land_polygons.shp"
+    stamp = shp.stat().st_mtime_ns
+
+    second = load_land_mask(zip_path, bbox)
+
     assert first.equals(second)
+    assert shp.stat().st_mtime_ns == stamp  # не розпаковано вдруге
+
+
+def test_load_land_mask_re_extracts_when_the_archive_changed_under_the_cache(tmp_path: Path) -> None:
+    zip_path = tmp_path / "land.zip"
+    _write_land_zip(zip_path, [box(30, 48, 31, 49)])
+    bbox = (22.1, 44.3, 40.3, 52.4)
+    old = load_land_mask(zip_path, bbox)
+    replacement = tmp_path / "v2" / "land.zip"
+    replacement.parent.mkdir()
+    _write_land_zip(replacement, [box(25, 45, 26, 46)])
+    shutil.copy(replacement, zip_path)  # той самий шлях, інший вміст
+
+    new = load_land_mask(zip_path, bbox)
+
+    assert not old.equals(new)
+    assert new.equals(box(25, 45, 26, 46))
+
+
+def test_load_land_mask_needs_the_archive_even_if_a_cache_directory_is_left(tmp_path: Path) -> None:
+    zip_path = tmp_path / "land.zip"
+    _write_land_zip(zip_path, [box(30, 48, 31, 49)])
+    load_land_mask(zip_path, (22.1, 44.3, 40.3, 52.4))
+    zip_path.unlink()
+
+    with pytest.raises(FileNotFoundError):
+        load_land_mask(zip_path, (22.1, 44.3, 40.3, 52.4))  # без архіву не перевірити ні кеш, ні межі обрізки
 
 
 def test_load_land_mask_without_polygons_in_bbox_is_empty(tmp_path: Path) -> None:

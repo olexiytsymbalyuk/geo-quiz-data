@@ -12,12 +12,15 @@ from shapely.geometry import LineString, MultiLineString, MultiPolygon, shape
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import linemerge, unary_union
 
+from pipeline.fetch import sha256_of
 from pipeline.geo_types import as_multipolygon
 
 # 50 м у градусах широти (≈ 111,32 км на градус); допуск збігу межі контуру з межею об'єднаних областей.
 BORDER_TOLERANCE_DEG = 50 / 111_320
 _LAND_STEM = "land_polygons"
 _LAND_EXTENSIONS = ("shp", "shx", "dbf", "cpg")
+_SHA_MARKER = ".source-sha256"  # у теці розпакування: sha256 архіву, з якого вона зроблена
+_sha_memo: dict[tuple[str, int, int], str] = {}
 PROVENANCE_NAME = "PROVENANCE.json"  # є лише в обрізаному архіві (pipeline.land_clip)
 
 
@@ -53,11 +56,26 @@ def state_border(outline: MultiPolygon, admin_union: BaseGeometry) -> MultiLineS
     return MultiLineString(list(_lines(merged)))
 
 
+def _archive_sha256(zip_path: Path) -> str:
+    """sha256 архіву; у межах процесу запам'ятовується за (шлях, mtime, розмір) -- ворота читають маску багато разів."""
+    stat = zip_path.stat()
+    key = (str(zip_path.resolve()), stat.st_mtime_ns, stat.st_size)
+    if key not in _sha_memo:
+        _sha_memo[key] = sha256_of(zip_path)
+    return _sha_memo[key]
+
+
 def extract_land_polygons(zip_path: Path) -> Path:
-    """Розпаковує shp/shx/dbf маски суші в кеш поруч з архівом (один раз); повертає шлях до .shp."""
+    """Розпаковує shp/shx/dbf маски суші в кеш поруч з архівом; повертає шлях до .shp.
+
+    Тека кешу відповідає архіву, лише якщо маркер `.source-sha256` дорівнює sha256 архіву; інакше (інший вміст під тим
+    самим іменем, обірване розпакування) тека очищається й розпаковується наново. Маркер пишеться останнім.
+    """
     cache_dir = zip_path.with_suffix("")
     target = cache_dir / f"{_LAND_STEM}.shp"
-    if target.exists():
+    marker = cache_dir / _SHA_MARKER
+    digest = _archive_sha256(zip_path)
+    if target.exists() and marker.exists() and marker.read_text(encoding="utf-8") == digest:
         return target
     with zipfile.ZipFile(zip_path) as archive:
         members = {
@@ -68,6 +86,8 @@ def extract_land_polygons(zip_path: Path) -> Path:
         if "shp" not in members or "shx" not in members or "dbf" not in members:
             raise ValueError(f"{zip_path.name}: немає файлів {_LAND_STEM}.shp/.shx/.dbf")
         cache_dir.mkdir(parents=True, exist_ok=True)
+        for stale in [marker, *(cache_dir / f"{_LAND_STEM}.{extension}" for extension in _LAND_EXTENSIONS)]:
+            stale.unlink(missing_ok=True)
         partial = cache_dir / f"{_LAND_STEM}.shp.partial"
         for extension, name in members.items():
             # лише базове ім'я члена: шлях з архіву на диск не переноситься
@@ -77,7 +97,8 @@ def extract_land_polygons(zip_path: Path) -> Path:
             with archive.open(name) as source, destination.open("wb") as sink:
                 while chunk := source.read(1 << 20):
                     sink.write(chunk)
-        partial.rename(target)  # .shp з'являється останнім: його наявність = кеш цілий
+        partial.rename(target)
+    marker.write_text(digest, encoding="utf-8")  # останнім: наявність маркера = розпакування ціле
     return target
 
 
@@ -95,8 +116,7 @@ def load_land_mask(zip_path: Path, bbox: tuple[float, float, float, float]) -> B
     """Маска суші OSM лише в bbox. Великий shp розпаковується один раз у кеш поруч з архівом
     (ZIP-потік не підтримує швидкого довільного доступу), далі pyshp читає записи за bbox-фільтром.
     Обрізаний архів (`PROVENANCE.json`) відмовляє на bbox поза своєю обрізкою."""
-    if zip_path.exists():
-        _check_inside_clip(zip_path, bbox)
+    _check_inside_clip(zip_path, bbox)  # без архіву -- FileNotFoundError: ні кеш, ні межі обрізки не перевірити
     shp_path = extract_land_polygons(zip_path)
     with shapefile.Reader(str(shp_path), encoding="utf-8") as reader:
         polygons = [shape(item.__geo_interface__) for item in reader.iterShapes(bbox=bbox) if item is not None]

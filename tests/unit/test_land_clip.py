@@ -259,3 +259,30 @@ def test_release_assets_are_not_tracked_by_git() -> None:
     ignored = (Path(__file__).resolve().parents[2] / ".gitignore").read_text(encoding="utf-8").splitlines()
 
     assert "data/" in ignored  # data/release-assets/ лежить під ним
+
+
+def _repo_land_entry() -> dict[str, object]:
+    root = Path(__file__).resolve().parents[2]
+    config = yaml.safe_load((root / "config" / "sources.yaml").read_text(encoding="utf-8"))
+    entry: dict[str, object] = config["sources"]["land_polygons"]["files"][0]
+    return entry
+
+
+def test_sources_yaml_margin_equals_the_margin_neutral_clipping_uses() -> None:
+    from pipeline.neutral import CLIP_MARGIN_DEG
+
+    derived = _repo_land_entry()["derived_from"]
+    assert isinstance(derived, dict)
+
+    assert derived["clip_margin_deg"] == CLIP_MARGIN_DEG
+
+
+def test_lock_records_the_same_provenance_as_sources_yaml() -> None:
+    root = Path(__file__).resolve().parents[2]
+    lock = yaml.safe_load((root / "config" / "sources.lock").read_text(encoding="utf-8"))
+    entry = _repo_land_entry()
+    locked = lock["sources"]["land_polygons"]["files"][entry["name"]]
+
+    assert locked["derived_from"] == entry["derived_from"]
+    assert locked["url"] == entry["url"]
+    assert "resolved_url" not in locked

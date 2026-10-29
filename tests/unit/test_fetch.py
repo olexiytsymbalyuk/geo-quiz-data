@@ -21,6 +21,18 @@ PAYLOAD_B = b"shape-bytes"
 
 
 class _Quiet(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802
+        """`/same/<файл>` -- редирект на тому ж хості, `/other/<файл>` -- на `localhost` (інший хост, як підписаний URL GitHub)."""
+        route, _, name = self.path.lstrip("/").partition("/")
+        if route in ("same", "other") and name:
+            host = f"127.0.0.1:{self.server.server_address[1]}" if route == "same" else f"localhost:{self.server.server_address[1]}"
+            self.send_response(302)
+            self.send_header("Location", f"http://{host}/{name}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        super().do_GET()
+
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002
         pass
 
@@ -108,14 +120,30 @@ def test_second_run_uses_cache_without_network(site: Site, tmp_path: Path) -> No
     assert paths["katottg"].read_bytes() == PAYLOAD_A
 
 
-def test_tampered_cache_raises_checksum_mismatch(site: Site, tmp_path: Path) -> None:
+def test_tampered_cache_is_replaced_by_a_fresh_verified_download(site: Site, tmp_path: Path) -> None:
     sources = _write_sources(tmp_path / "sources.yaml", site.base)
     lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
     fetch_all(sources, lock, raw, update=True)
     (raw / "katottg" / "a.xlsx").write_bytes(b"tampered")
 
+    paths = fetch_all(sources, lock, raw)
+
+    assert paths["katottg"].read_bytes() == PAYLOAD_A
+    assert not list(raw.rglob("*.part"))
+
+
+def test_tampered_cache_still_raises_when_the_fresh_download_mismatches_too(site: Site, tmp_path: Path) -> None:
+    sources = _write_sources(tmp_path / "sources.yaml", site.base)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(sources, lock, raw, update=True)
+    (raw / "katottg" / "a.xlsx").write_bytes(b"tampered")
+    (site.root / "a.xlsx").write_bytes(b"upstream changed")
+
     with pytest.raises(ChecksumMismatch, match="a.xlsx"):
         fetch_all(sources, lock, raw)
+
+    assert not (raw / "katottg" / "a.xlsx").exists()
+    assert not list(raw.rglob("*.part"))
 
 
 def test_download_with_changed_upstream_raises_and_leaves_no_file(site: Site, tmp_path: Path) -> None:
@@ -307,8 +335,8 @@ DERIVED_FROM = {
 }
 
 
-def _write_derived_sources(path: Path, base: str, derived: dict[str, object] | None) -> Path:
-    item: dict[str, object] = {"name": "a.xlsx", "url": f"{base}/a.xlsx"}
+def _write_derived_sources(path: Path, base: str, derived: dict[str, object] | None, route: str = "") -> Path:
+    item: dict[str, object] = {"name": "a.xlsx", "url": f"{base}/{route}a.xlsx"}
     if derived is not None:
         item["derived_from"] = derived
     path.write_text(
@@ -317,19 +345,65 @@ def _write_derived_sources(path: Path, base: str, derived: dict[str, object] | N
     return path
 
 
-def test_update_records_where_a_derived_file_comes_from(site: Site, tmp_path: Path) -> None:
-    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
+def _write_derived_lock(lock: Path, base: str, derived: dict[str, object] | None, route: str = "") -> dict[str, object]:
+    """Lock так, як його пише `land_clip --write-lock`: запис land з походженням, sha256 -- від PAYLOAD_A."""
+    entry: dict[str, object] = {
+        "url": f"{base}/{route}a.xlsx",
+        "fetched_at": "2026-10-29T00:00:00Z",
+        "sha256": hashlib.sha256(PAYLOAD_A).hexdigest(),
+        "size": len(PAYLOAD_A),
+    }
+    if derived is not None:
+        entry["derived_from"] = derived
+    lock.write_text(yaml.safe_dump({"sources": {"land": {"license": "ODbL 1.0", "files": {"a.xlsx": entry}}}}), encoding="utf-8")
+    return entry
+
+
+def _lock_entry(lock: Path) -> dict[str, object]:
+    entry: dict[str, object] = yaml.safe_load(lock.read_text(encoding="utf-8"))["sources"]["land"]["files"]["a.xlsx"]
+    return entry
+
+
+def test_update_leaves_a_derived_entry_exactly_as_land_clip_wrote_it(site: Site, tmp_path: Path) -> None:
+    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM, "other/")
     lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    written = _write_derived_lock(lock, site.base, DERIVED_FROM, "other/")
 
     fetch_all(sources, lock, raw, update=True)
 
-    entry = yaml.safe_load(lock.read_text(encoding="utf-8"))["sources"]["land"]["files"]["a.xlsx"]
-    assert entry["derived_from"] == DERIVED_FROM
+    assert _lock_entry(lock) == written  # ні resolved_url, ні нового fetched_at
+    assert (raw / "land" / "a.xlsx").read_bytes() == PAYLOAD_A  # файл при цьому перевірено й закешовано
+
+
+def test_update_of_a_derived_entry_without_a_lock_entry_points_to_land_clip(site: Site, tmp_path: Path) -> None:
+    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
+
+    with pytest.raises(LockError, match="land_clip"):
+        fetch_all(sources, tmp_path / "sources.lock", tmp_path / "raw", update=True)
+
+
+def test_update_of_a_derived_entry_with_stale_provenance_is_a_lock_error(site: Site, tmp_path: Path) -> None:
+    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
+    lock = tmp_path / "sources.lock"
+    _write_derived_lock(lock, site.base, {**DERIVED_FROM, "sha256": "e" * 64})
+
+    with pytest.raises(LockError, match="derived_from"):
+        fetch_all(sources, lock, tmp_path / "raw", update=True)
+
+
+def test_update_of_a_derived_entry_rejects_a_file_that_does_not_match_the_lock(site: Site, tmp_path: Path) -> None:
+    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    _write_derived_lock(lock, site.base, DERIVED_FROM)
+    (site.root / "a.xlsx").write_bytes(b"re-uploaded asset")
+
+    with pytest.raises(ChecksumMismatch):
+        fetch_all(sources, lock, raw, update=True)
 
 
 def test_lock_without_derived_from_is_stale_when_sources_declare_it(site: Site, tmp_path: Path) -> None:
     lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
-    fetch_all(_write_derived_sources(tmp_path / "plain.yaml", site.base, None), lock, raw, update=True)
+    _write_derived_lock(lock, site.base, None)
     derived = _write_derived_sources(tmp_path / "derived.yaml", site.base, DERIVED_FROM)
 
     with pytest.raises(LockError, match="derived_from"):
@@ -338,7 +412,7 @@ def test_lock_without_derived_from_is_stale_when_sources_declare_it(site: Site, 
 
 def test_changed_provenance_makes_the_lock_stale(site: Site, tmp_path: Path) -> None:
     lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
-    fetch_all(_write_derived_sources(tmp_path / "a.yaml", site.base, DERIVED_FROM), lock, raw, update=True)
+    _write_derived_lock(lock, site.base, DERIVED_FROM)
     other = {**DERIVED_FROM, "sha256": "e" * 64}
 
     with pytest.raises(LockError, match="derived_from"):
@@ -348,7 +422,33 @@ def test_changed_provenance_makes_the_lock_stale(site: Site, tmp_path: Path) -> 
 def test_matching_provenance_uses_the_cache(site: Site, tmp_path: Path) -> None:
     sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
     lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
-    fetch_all(sources, lock, raw, update=True)
+    _write_derived_lock(lock, site.base, DERIVED_FROM)
+    fetch_all(sources, lock, raw)
     site.stop()
 
     assert fetch_all(sources, lock, raw)["land"].read_bytes() == PAYLOAD_A
+
+
+def test_redirect_to_another_host_is_not_recorded_as_resolved_url(site: Site, tmp_path: Path) -> None:
+    sources = _write_sources_with_route(tmp_path / "sources.yaml", site.base, "other/")
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+
+    fetch_all(sources, lock, raw, update=True)
+
+    entry = yaml.safe_load(lock.read_text(encoding="utf-8"))["sources"]["land"]["files"]["a.xlsx"]
+    assert "resolved_url" not in entry  # підписаний URL чужого хоста спливає за хвилини
+    assert entry["sha256"] == hashlib.sha256(PAYLOAD_A).hexdigest()
+
+
+def test_redirect_on_the_same_host_is_recorded_as_resolved_url(site: Site, tmp_path: Path) -> None:
+    sources = _write_sources_with_route(tmp_path / "sources.yaml", site.base, "same/")
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+
+    fetch_all(sources, lock, raw, update=True)
+
+    entry = yaml.safe_load(lock.read_text(encoding="utf-8"))["sources"]["land"]["files"]["a.xlsx"]
+    assert entry["resolved_url"] == f"{site.base}/a.xlsx"  # датований знімок Geofabrik лишається на своєму хості
+
+
+def _write_sources_with_route(path: Path, base: str, route: str) -> Path:
+    return _write_derived_sources(path, base, None, route)
