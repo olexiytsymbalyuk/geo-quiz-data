@@ -32,6 +32,21 @@ python -m pytest -q      # юніт-тести
 python -m mypy           # strict
 ```
 
+### Інструменти (Docker)
+
+`osmium` і `tippecanoe` працюють лише в образі `geo-quiz-tools:1` (`docker/Dockerfile`, Debian
+bookworm-slim; нативно на arm64 і на linux/amd64). Кроки конвеєра викликають їх тільки через
+`pipeline.tools.run_tool`, яка повертає тривалість і пік пам'яті. Версії в образі:
+
+| Інструмент | Версія | Звідки |
+|---|---|---|
+| osmium-tool | 1.15.0 (libosmium 2.18.0; apt `1.15.0-1`) | пакет Debian bookworm |
+| tippecanoe | 2.79.0 | збірка з `felt/tippecanoe` за тегом `2.79.0`; уміє писати `.pmtiles` |
+
+```bash
+python -m pipeline.tools build   # зібрати образ (~40 с без кешу)
+```
+
 ### Залежності
 
 Версії заморожено `uv pip compile`; сторож `tests/unit/test_requirements_lock.py` стежить, щоб
