@@ -33,6 +33,16 @@ sources:
 
   land_polygons:
     license: ODbL 1.0  # © OpenStreetMap contributors; osmdata.openstreetmap.de
+    # Оригінал osmdata (≈ 929 МБ) оновлюється щодня без датованого знімка, тож холодний fetch його не тягне
+    # (рішення власника 60). Конвеєр читає обрізану похідну: полігони, що перетинають bbox датасету + 3°
+    # (`python -m pipeline.land_clip`), asset релізу `sources-2026-10`. Походження -- `derived_from`.
     files:
-      - name: land-polygons-split-4326.zip
-        url: https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip
+      - name: land-polygons-split-4326-ukraine.zip
+        url: https://github.com/olexiytsymbalyuk/geo-quiz-data/releases/download/sources-2026-10/land-polygons-split-4326-ukraine.zip
+        derived_from:
+          url: https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip
+          sha256: f8fed1225cdd098503139f123c0a724997cb6df731e6d1986b8a167137bb96fb
+          size: 928624032
+          last_modified: Thu, 29 Oct 2026 03:42:52 GMT
+          dataset_bbox: [22.0, 44.0, 40.5, 52.5]  # межі областей України (22,14-40,23 E; 44,18-52,40 N) з запасом
+          clip_margin_deg: 3.0  # = pipeline.neutral.CLIP_MARGIN_DEG

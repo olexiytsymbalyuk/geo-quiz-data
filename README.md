@@ -54,7 +54,7 @@ python -m pipeline.tools build   # зібрати образ (~40 с без ке
 python -m pipeline.build --version 2026.11.1 [--force]
 ```
 
-Одна команда проходить увесь конвеєр з кешу (`data/raw/`, без мережі): fetch за `sources.lock` -> КАТОТТГ ->
+Одна команда проходить увесь конвеєр з кешу (`data/raw/`, без мережі; маска суші — обрізаний asset, див. нижче): fetch за `sources.lock` -> КАТОТТГ ->
 витяг OSM -> Wikidata -> газетир -> контур і нейтральна суша -> шари з білим списком -> tippecanoe -> штамп
 `dataset_version` -> `metrics.json` -> `manifest.json`. Результат — `dist/<версія>/` з п'ятьма файлами.
 Збірка пише в `dist/<версія>.partial/` і наприкінці перейменовує теку; якщо `dist/<версія>/` уже є, потрібен
@@ -64,6 +64,31 @@ python -m pipeline.build --version 2026.11.1 [--force]
 `dataset_version` — `pipeline/tiles.py`, маніфест — `pipeline/manifest.py`, метрики — `pipeline/metrics.py`.
 `metrics.json`: час і пік RAM кроків, покриття газетира за типами й областями, `startable` ярусів 1-4,
 розміри файлів, фічі за шарами, `tile_stats`, довжина державного кордону (км), id нейтральних країн.
+
+### Полігони суші (обрізане джерело)
+
+Маска суші — [osmdata land-polygons-split-4326](https://osmdata.openstreetmap.de/data/land-polygons.html) (ODbL 1.0,
+© OpenStreetMap contributors). Оригінал (≈ 929 МБ) оновлюється щодня без датованого знімка, тож холодний fetch
+завжди падав би на sha256. Рішення власника 60: конвеєр читає **обрізану похідну** `land-polygons-split-4326-ukraine.zip`
+(≈ 5 МБ) — лише полігони, що перетинають bbox датасету + 3° (`CLIP_MARGIN_DEG`), як asset релізу
+[`sources-2026-10`](https://github.com/olexiytsymbalyuk/geo-quiz-data/releases/tag/sources-2026-10). Звичайний
+`python -m pipeline.fetch` і CI тягнуть саме його; sha256 і розмір — у `config/sources.lock`, походження (url і sha256
+оригіналу, bbox, запас) — у `derived_from` там і в `PROVENANCE.json` усередині архіву.
+
+У GitHub Actions (`.github/workflows/build.yml`) кеш `data/raw` має ключ `raw-<хеш sources.lock>`; якщо fetch упав
+посередині, недокачане (без `.part`) зберігається під ключем `…-partial-<запуск>`, і наступний запуск продовжує звідти.
+
+Виробити файл наново (потрібен кешований оригінал; кладіть його поза `data/raw/`, щоб ворота знаходили там рівно один архів):
+
+```bash
+mkdir -p data/originals && mv <оригінал>.zip data/originals/land-polygons-split-4326.zip
+python -m pipeline.land_clip --write-lock   # -> data/release-assets/ (gitignored); виводить розмір і sha256
+gh release upload sources-2026-10 data/release-assets/land-polygons-split-4326-ukraine.zip --clobber
+```
+
+Вихід відтворюваний байт у байт (відсортовані записи, координати без округлення, зафіксовані дата dbf і метадані zip);
+`load_land_mask` відмовляє на bbox поза обрізкою. Нове вивантаження osmdata — це нова пара `derived_from` у
+`config/sources.yaml` (url, sha256, size оригіналу) і новий тег `sources-YYYY-MM`.
 
 ### Залежності
 
@@ -80,6 +105,7 @@ uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o r
 | Джерело | Що дає | Ліцензія |
 |---|---|---|
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Geofabrik, Ukraine PBF) | пункти, адмінполігони, вода, вершини, `name:uk` | ODbL 1.0 — © OpenStreetMap contributors |
+| [OSM land polygons](https://osmdata.openstreetmap.de/data/land-polygons.html) (osmdata.openstreetmap.de; обрізана похідна) | берегова лінія: маска суші для контуру | ODbL 1.0 — © OpenStreetMap contributors |
 | [Natural Earth](https://www.naturalearthdata.com/) 5.1.2 | кордони за POV України, фізична географія, озера, річки | public domain |
 | [КАТОТТГ](https://mininfra.gov.ua/diialnist/rozvytok-mistsevoho-samovriaduvannia/kodyfikator-administratyvno-terytorialnykh-odynyts-ta-terytorii-terytorialnykh-hromad) (Мінінфраструктури) | офіційні назви, категорії, ієрархія, коди | CC BY 4.0 (підтверджено на mininfra.gov.ua 29.10.2026) |
 | [Wikidata](https://www.wikidata.org/) | P9435 (KATOTTH ID), населення, координати, лейбли й аліаси uk/en | CC0 |
@@ -90,5 +116,6 @@ GADM і Eurostat GISCO як геометрія не використовують
 
 ## Ліцензії
 
-- Газетир (похідна база даних OSM) — ODbL 1.0; решта даних — за таблицею вище.
+- Газетир (похідна база даних OSM) і обрізана маска суші (`land-polygons-split-4326-ukraine.zip`, похідна OSM) — ODbL 1.0;
+  решта даних — за таблицею вище.
 - Код конвеєра — ліцензію обере власник; поки що всі права застережено.

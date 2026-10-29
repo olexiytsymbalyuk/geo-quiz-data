@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import zipfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
@@ -17,6 +18,7 @@ from pipeline.geo_types import as_multipolygon
 BORDER_TOLERANCE_DEG = 50 / 111_320
 _LAND_STEM = "land_polygons"
 _LAND_EXTENSIONS = ("shp", "shx", "dbf", "cpg")
+PROVENANCE_NAME = "PROVENANCE.json"  # є лише в обрізаному архіві (pipeline.land_clip)
 
 
 def build_outline(oblast_polys: Sequence[BaseGeometry], land_mask: BaseGeometry) -> MultiPolygon:
@@ -51,7 +53,7 @@ def state_border(outline: MultiPolygon, admin_union: BaseGeometry) -> MultiLineS
     return MultiLineString(list(_lines(merged)))
 
 
-def _extract_land_polygons(zip_path: Path) -> Path:
+def extract_land_polygons(zip_path: Path) -> Path:
     """Розпаковує shp/shx/dbf маски суші в кеш поруч з архівом (один раз); повертає шлях до .shp."""
     cache_dir = zip_path.with_suffix("")
     target = cache_dir / f"{_LAND_STEM}.shp"
@@ -79,10 +81,23 @@ def _extract_land_polygons(zip_path: Path) -> Path:
     return target
 
 
+def _check_inside_clip(zip_path: Path, bbox: tuple[float, float, float, float]) -> None:
+    """Обрізаний архів містить лише суходіл у своєму `clip_bbox`: запит поза ним дав би мовчки неповну маску."""
+    with zipfile.ZipFile(zip_path) as archive:
+        if PROVENANCE_NAME not in archive.namelist():
+            return  # повний архів osmdata: обмежень немає
+        west, south, east, north = json.loads(archive.read(PROVENANCE_NAME))["clip_bbox"]
+    if bbox[0] < west or bbox[1] < south or bbox[2] > east or bbox[3] > north:
+        raise ValueError(f"{zip_path.name}: bbox запиту виходить за межі обрізки {[west, south, east, north]}")
+
+
 def load_land_mask(zip_path: Path, bbox: tuple[float, float, float, float]) -> BaseGeometry:
     """Маска суші OSM лише в bbox. Великий shp розпаковується один раз у кеш поруч з архівом
-    (ZIP-потік не підтримує швидкого довільного доступу), далі pyshp читає записи за bbox-фільтром."""
-    shp_path = _extract_land_polygons(zip_path)
+    (ZIP-потік не підтримує швидкого довільного доступу), далі pyshp читає записи за bbox-фільтром.
+    Обрізаний архів (`PROVENANCE.json`) відмовляє на bbox поза своєю обрізкою."""
+    if zip_path.exists():
+        _check_inside_clip(zip_path, bbox)
+    shp_path = extract_land_polygons(zip_path)
     with shapefile.Reader(str(shp_path), encoding="utf-8") as reader:
         polygons = [shape(item.__geo_interface__) for item in reader.iterShapes(bbox=bbox) if item is not None]
     return unary_union(polygons) if polygons else MultiPolygon()

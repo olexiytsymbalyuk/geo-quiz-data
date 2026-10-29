@@ -1,6 +1,6 @@
 """Завантаження сирих джерел із замкненими контрольними сумами.
 
-`config/sources.yaml` — що завантажувати; `config/sources.lock` — що саме було завантажено
+`config/sources.yaml` — що завантажувати (похідний файл має `derived_from` -- походження, яке копіюється в lock); `config/sources.lock` — що саме було завантажено
 (url, час, розмір, sha256, для OSM — час даних). Усі наступні кроки конвеєра читають сирі
 джерела лише з кешу `data/raw/`, перевіреного цим lock: без `--update` файл береться з кешу
 або завантажується, і в обох випадках його sha256 мусить збігтися з lock.
@@ -127,20 +127,22 @@ def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dic
     result: dict[str, Path] = {}
 
     for source, spec in config.items():
-        files: list[dict[str, str]] = spec["files"]
+        files: list[dict[str, Any]] = spec["files"]
         entries: dict[str, Any] = {}
         for item in files:
             fname, url = item["name"], item["url"]
             dest = raw / source / fname
             label = f"{source}/{fname}"
             if update:
-                entries[fname] = _fetch_fresh(dest, url, spec)
+                entries[fname] = _fetch_fresh(dest, url, spec, item.get("derived_from"))
             else:
                 entry = locked.get(source, {}).get("files", {}).get(fname)
                 if entry is None:
                     raise LockError(f"{label} немає в {lock}; python -m pipeline.fetch --update")
                 if entry["url"] != url:
                     raise LockError(f"{label}: url у {sources.name} ({url}) інший, ніж у lock ({entry['url']})")
+                if entry.get("derived_from") != item.get("derived_from"):
+                    raise LockError(f"{label}: derived_from у {sources.name} інший, ніж у lock; python -m pipeline.fetch --update")
                 # Рухомий url (`-latest`) -- лише для оновлення lock; звичайний fetch тягне знімок.
                 _ensure_cached(dest, entry.get("resolved_url", url), entry["sha256"], label)
                 entries[fname] = entry
@@ -155,10 +157,12 @@ def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dic
     return result
 
 
-def _fetch_fresh(dest: Path, url: str, spec: dict[str, Any]) -> dict[str, Any]:
+def _fetch_fresh(dest: Path, url: str, spec: dict[str, Any], derived_from: dict[str, Any] | None) -> dict[str, Any]:
     fetched_at = _utc_now()
     info = _download(url, dest)
     entry: dict[str, Any] = {"url": url, "fetched_at": fetched_at, **info}
+    if derived_from is not None:
+        entry["derived_from"] = derived_from  # походження похідного файла (pipeline.land_clip): url і sha256 оригіналу, bbox
     if spec.get("osm_timestamp"):
         entry["osm_timestamp"] = osm_timestamp(dest)
     return entry

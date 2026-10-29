@@ -296,3 +296,59 @@ def test_resolved_url_with_other_content_still_fails_checksum(site: Site, tmp_pa
         fetch_all(sources, lock, raw)
 
     assert not (raw / "katottg" / "a.xlsx").exists()
+
+
+DERIVED_FROM = {
+    "url": "https://example.invalid/land-polygons-split-4326.zip",
+    "sha256": "f" * 64,
+    "size": 928_624_032,
+    "dataset_bbox": [22.0, 44.0, 40.5, 52.5],
+    "clip_margin_deg": 3.0,
+}
+
+
+def _write_derived_sources(path: Path, base: str, derived: dict[str, object] | None) -> Path:
+    item: dict[str, object] = {"name": "a.xlsx", "url": f"{base}/a.xlsx"}
+    if derived is not None:
+        item["derived_from"] = derived
+    path.write_text(
+        yaml.safe_dump({"sources": {"land": {"license": "ODbL 1.0", "files": [item]}}}), encoding="utf-8"
+    )
+    return path
+
+
+def test_update_records_where_a_derived_file_comes_from(site: Site, tmp_path: Path) -> None:
+    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+
+    fetch_all(sources, lock, raw, update=True)
+
+    entry = yaml.safe_load(lock.read_text(encoding="utf-8"))["sources"]["land"]["files"]["a.xlsx"]
+    assert entry["derived_from"] == DERIVED_FROM
+
+
+def test_lock_without_derived_from_is_stale_when_sources_declare_it(site: Site, tmp_path: Path) -> None:
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(_write_derived_sources(tmp_path / "plain.yaml", site.base, None), lock, raw, update=True)
+    derived = _write_derived_sources(tmp_path / "derived.yaml", site.base, DERIVED_FROM)
+
+    with pytest.raises(LockError, match="derived_from"):
+        fetch_all(derived, lock, raw)
+
+
+def test_changed_provenance_makes_the_lock_stale(site: Site, tmp_path: Path) -> None:
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(_write_derived_sources(tmp_path / "a.yaml", site.base, DERIVED_FROM), lock, raw, update=True)
+    other = {**DERIVED_FROM, "sha256": "e" * 64}
+
+    with pytest.raises(LockError, match="derived_from"):
+        fetch_all(_write_derived_sources(tmp_path / "b.yaml", site.base, other), lock, raw)
+
+
+def test_matching_provenance_uses_the_cache(site: Site, tmp_path: Path) -> None:
+    sources = _write_derived_sources(tmp_path / "sources.yaml", site.base, DERIVED_FROM)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(sources, lock, raw, update=True)
+    site.stop()
+
+    assert fetch_all(sources, lock, raw)["land"].read_bytes() == PAYLOAD_A

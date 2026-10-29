@@ -52,9 +52,19 @@ sources:
   land_polygons:
     license: ODbL 1.0
     files:
-      land-polygons-split-4326.zip:
-        url: https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip
-        fetched_at: '2026-10-29T14:35:13Z'
-        sha256: f8fed1225cdd098503139f123c0a724997cb6df731e6d1986b8a167137bb96fb
-        size: 928624032
-        last_modified: Thu, 29 Oct 2026 03:42:52 GMT
+      land-polygons-split-4326-ukraine.zip:
+        url: https://github.com/olexiytsymbalyuk/geo-quiz-data/releases/download/sources-2026-10/land-polygons-split-4326-ukraine.zip
+        fetched_at: '2026-10-29T21:11:46Z'
+        sha256: 86e04dfb1c0da451d3840c09e220e07a14bf6cdbf3a3b147947946646ae4d0a1
+        size: 4975495
+        derived_from:
+          url: https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip
+          sha256: f8fed1225cdd098503139f123c0a724997cb6df731e6d1986b8a167137bb96fb
+          size: 928624032
+          last_modified: Thu, 29 Oct 2026 03:42:52 GMT
+          dataset_bbox:
+          - 22.0
+          - 44.0
+          - 40.5
+          - 52.5
+          clip_margin_deg: 3.0
