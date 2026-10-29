@@ -29,7 +29,7 @@ from pipeline.katottg import KatottgUnit
 from pipeline.letters import chain_letter, compute_startable
 from pipeline.policy import Policy
 from pipeline.text import has_forbidden, normalize_key
-from pipeline.wikidata import WdItem
+from pipeline.wikidata import WdItem, WikidataResult
 
 COUNTRY = "UA"
 SCOPE = "ukraine"
@@ -594,17 +594,26 @@ def build_report(result: GazetteerResult) -> dict[str, Any]:
     }
 
 
-def build_from_cache() -> GazetteerResult:
-    """Збірка газетира з кешу `data/raw/` і витягу `data/work/extract/` (без мережі)."""
+def build_from_cache(
+    version: str = DATASET_VERSION,
+    *,
+    units: list[KatottgUnit] | None = None,
+    wd: WikidataResult | None = None,
+    extract_dir: Path | None = None,
+) -> GazetteerResult:
+    """Збірка газетира з кешу `data/raw/` і витягу `data/work/extract/` (без мережі).
+
+    `units`, `wd`, `extract_dir` дає оркестратор збірки, щоб не розбирати кодифікатор і кеш Wikidata вдруге.
+    """
     from pipeline.katottg import KATOTTG_FILE, parse_katottg
     from pipeline.paths import RAW, WORK
     from pipeline.policy import load_policy
     from pipeline.wikidata import fetch
 
-    units = parse_katottg(KATOTTG_FILE)
-    wd = fetch(RAW)
+    units = parse_katottg(KATOTTG_FILE) if units is None else units
+    wd = fetch(RAW) if wd is None else wd
     capitals = resolve_capitals(wd.capitals, wd.capital_conflicts, {u.code for u in units if u.category == "O"})
-    extract = WORK / "extract"
+    extract = WORK / "extract" if extract_dir is None else extract_dir
     return build_gazetteer(
         units,
         read_layer(extract / "places.geojsonl"),
@@ -614,7 +623,7 @@ def build_from_cache() -> GazetteerResult:
         wd.items,
         capitals,
         load_policy(),
-        DATASET_VERSION,
+        version,
     )
 
 

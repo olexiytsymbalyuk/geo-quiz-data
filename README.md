@@ -47,14 +47,22 @@ bookworm-slim; нативно на arm64 і на linux/amd64). Кроки кон
 python -m pipeline.tools build   # зібрати образ (~40 с без кешу)
 ```
 
-### Тайли (M0)
+### Збірка релізу
 
 ```bash
-python -m pipeline.layers --real   # газетир -> контур -> шари з білим списком -> tippecanoe -> data/work/ukraine-test.pmtiles
+python -m pipeline.build --version 2026.11.1 [--force]
 ```
 
+Одна команда проходить увесь конвеєр з кешу (`data/raw/`, без мережі): fetch за `sources.lock` -> КАТОТТГ ->
+витяг OSM -> Wikidata -> газетир -> контур і нейтральна суша -> шари з білим списком -> tippecanoe -> штамп
+`dataset_version` -> `metrics.json` -> `manifest.json`. Результат — `dist/<версія>/` з п'ятьма файлами.
+Збірка пише в `dist/<версія>.partial/` і наприкінці перейменовує теку; якщо `dist/<версія>/` уже є, потрібен
+`--force`; при падінні `.partial` лишається для діагностики. Ворота (`tests/gates/`) окрема команда.
+
 Шари й білий список атрибутів — `pipeline/layers.py` (`LAYER_WHITELIST`), PMTiles і штамп
-`dataset_version` — `pipeline/tiles.py`. Виміри прогону пишуться в `data/work/layers-report.json`.
+`dataset_version` — `pipeline/tiles.py`, маніфест — `pipeline/manifest.py`, метрики — `pipeline/metrics.py`.
+`metrics.json`: час і пік RAM кроків, покриття газетира за типами й областями, `startable` ярусів 1-4,
+розміри файлів, фічі за шарами, `tile_stats`, довжина державного кордону (км), id нейтральних країн.
 
 ### Залежності
 
@@ -71,7 +79,7 @@ uv pip compile pyproject.toml --extra dev --universal --python-version 3.11 -o r
 | Джерело | Що дає | Ліцензія |
 |---|---|---|
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Geofabrik, Ukraine PBF) | пункти, адмінполігони, вода, вершини, `name:uk` | ODbL 1.0 — © OpenStreetMap contributors |
-| [Natural Earth](https://www.naturalearthdata.com/) 5.2.0 | кордони за POV України, фізична географія, озера, річки | public domain |
+| [Natural Earth](https://www.naturalearthdata.com/) 5.1.2 | кордони за POV України, фізична географія, озера, річки | public domain |
 | [КАТОТТГ](https://mininfra.gov.ua/diialnist/rozvytok-mistsevoho-samovriaduvannia/kodyfikator-administratyvno-terytorialnykh-odynyts-ta-terytorii-terytorialnykh-hromad) (Мінінфраструктури) | офіційні назви, категорії, ієрархія, коди | CC BY 4.0 (підтверджено на mininfra.gov.ua 29.10.2026) |
 | [Wikidata](https://www.wikidata.org/) | P9435 (KATOTTH ID), населення, координати, лейбли й аліаси uk/en | CC0 |
 | [GeoNames](https://www.geonames.org/) | точки, населення, feature codes, альтернативні назви | CC BY 4.0 |
