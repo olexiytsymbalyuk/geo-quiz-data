@@ -1,0 +1,176 @@
+# Ручна збірка атласу «Україна» (M0): fetch -> build -> ворота -> pre-release `m0`.
+# Ворота не послаблюються: червоні ворота валять запуск, але артефакти до того вже вивантажені
+# (actions/upload-artifact), тож їх можна оглянути. Pre-release створює окремий job лише після зеленого build.
+name: Збірка атласу
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Версія датасету YYYY.MM.N"
+        required: true
+        default: "2026.11.1"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-atlas
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Перевірити версію
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+$ ]]; then
+            echo "::error::версія має вигляд YYYY.MM.N"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+
+      - name: Залежності
+        run: |
+          uv pip install --system -r requirements-dev.txt
+          sudo apt-get install -y --no-install-recommends time
+
+      - name: Образ інструментів (osmium, tippecanoe)
+        run: python -m pipeline.tools build
+
+      - name: Юніт-тести й самотест воріт
+        run: python -m pytest tests/unit tests/gates_selftest -q
+
+      - name: Кеш сирих джерел
+        id: raw-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/raw
+          key: raw-${{ hashFiles('config/sources.lock') }}
+
+      - name: Завантажити сирі джерела
+        run: python -m pipeline.fetch
+
+      - name: Зберегти кеш сирих джерел
+        if: steps.raw-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/raw
+          key: raw-${{ hashFiles('config/sources.lock') }}
+
+      - name: Збірка релізу
+        run: /usr/bin/time -v -o build-time.txt python -m pipeline.build --version "$VERSION"
+
+      - name: Час і пік пам'яті в підсумок
+        if: always()
+        run: |
+          if [ -f build-time.txt ]; then
+            cat build-time.txt
+            {
+              echo "### Збірка $VERSION"
+              echo '```'
+              grep -E "Elapsed \(wall clock\)|Maximum resident set size" build-time.txt || true
+              echo '```'
+              echo "Пік пам'яті тут — лише процес Python; кроки osmium і tippecanoe в Docker мають свій пік у metrics.json."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f "dist/$VERSION/metrics.json" ]; then
+            python - "dist/$VERSION/metrics.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          steps = json.load(open(sys.argv[1], encoding="utf-8"))["steps"]
+          print("| Крок | с | пік RAM, MB |")
+          print("|---|---|---|")
+          for name, step in steps.items():
+              rss = round(step.get("python_peak_rss_mb", step.get("tool_max_rss_mb", 0)))
+              print(f"| {name} | {step.get('seconds', '')} | {rss} |")
+          PY
+          fi
+
+      - name: Вивантажити артефакти (до воріт)
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dataset-${{ env.VERSION }}
+          path: dist/${{ env.VERSION }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Вивантажити недозібране для діагностики
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: partial-${{ env.VERSION }}
+          path: dist/${{ env.VERSION }}.partial
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Ворота
+        run: python -m pytest tests/gates --dataset "dist/$VERSION" --lock config/sources.lock --raw data/raw -q
+
+      - name: Звіти воріт
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gates-report-${{ env.VERSION }}
+          path: data/work/gates
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    needs: build
+    if: success()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Перевірити версію
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+$ ]]; then
+            echo "::error::версія має вигляд YYYY.MM.N"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dataset-${{ env.VERSION }}
+          path: release-files
+
+      - name: Pre-release m0
+        run: |
+          files=(
+            "release-files/ukraine-$VERSION.pmtiles"
+            "release-files/gazetteer-$VERSION.sqlite"
+            "release-files/gazetteer-ukraine-$VERSION.json"
+            "release-files/manifest.json"
+            "release-files/metrics.json"
+          )
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || { echo "::error::немає файла $f"; exit 1; }
+          done
+          notes="Ворота зелені; версія датасету $VERSION."
+          if gh release view m0 >/dev/null 2>&1; then
+            gh release edit m0 --prerelease --title "M0: атлас Україна $VERSION" --notes "$notes"
+          else
+            gh release create m0 --prerelease --target "$GITHUB_SHA" --title "M0: атлас Україна $VERSION" --notes "$notes"
+          fi
+          gh release upload m0 "${files[@]}" --clobber
