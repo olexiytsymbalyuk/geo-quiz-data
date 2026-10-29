@@ -20,19 +20,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  # Єдине місце, де сирий вхід потрапляє в оболонку; усі інші job беруть версію лише з виходу цього.
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
     env:
       VERSION: ${{ inputs.version }}
     steps:
       - name: Перевірити версію
+        id: check
         run: |
           if ! [[ "$VERSION" =~ ^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+$ ]]; then
             echo "::error::версія має вигляд YYYY.MM.N"
             exit 1
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -44,9 +56,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       - name: Залежності
-        run: |
-          uv pip install --system -r requirements-dev.txt
-          sudo apt-get install -y --no-install-recommends time
+        run: uv pip install --system -r requirements-dev.txt  # GNU time (/usr/bin/time) уже є на ubuntu-latest
 
       - name: Образ інструментів (osmium, tippecanoe)
         run: python -m pipeline.tools build
@@ -71,6 +81,8 @@ jobs:
           path: data/raw
           key: raw-${{ hashFiles('config/sources.lock') }}
 
+      # Wikidata build запитує вживу (кеш wikidata-<дата>.json у data/raw): збірки не відтворювані між запусками,
+      # момент запиту записано в manifest.json як wikidata_queried_at.
       - name: Збірка релізу
         run: /usr/bin/time -v -o build-time.txt python -m pipeline.build --version "$VERSION"
 
@@ -84,7 +96,8 @@ jobs:
               echo '```'
               grep -E "Elapsed \(wall clock\)|Maximum resident set size" build-time.txt || true
               echo '```'
-              echo "Пік пам'яті тут — лише процес Python; кроки osmium і tippecanoe в Docker мають свій пік у metrics.json."
+              echo "Пік пам'яті тут -- лише процес Python на хості; кроки osmium і tippecanoe йдуть у Docker."
+              echo "Збірки не відтворювані між запусками: Wikidata запитується вживу, момент запиту -- wikidata_queried_at у manifest.json."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "dist/$VERSION/metrics.json" ]; then
@@ -93,11 +106,23 @@ jobs:
           import sys
 
           steps = json.load(open(sys.argv[1], encoding="utf-8"))["steps"]
-          print("| Крок | с | пік RAM, MB |")
-          print("|---|---|---|")
+          print()
+          print("| Крок | с | Python: накопичений пік, MB | Docker-інструмент: пік команди, MB |")
+          print("|---|---|---|---|")
           for name, step in steps.items():
-              rss = round(step.get("python_peak_rss_mb", step.get("tool_max_rss_mb", 0)))
-              print(f"| {name} | {step.get('seconds', '')} | {rss} |")
+              python_peak = step.get("python_peak_rss_mb")
+              tool_peak = step.get("tool_max_rss_mb")
+              print(
+                  f"| {name} | {step.get('seconds', '')} | "
+                  f"{'' if python_peak is None else round(python_peak)} | "
+                  f"{'' if tool_peak is None else round(tool_peak)} |"
+              )
+          print()
+          print(
+              "Накопичений пік Python -- максимум процесу за весь час до цього кроку; "
+              "пік Docker-інструмента -- окрема команда в контейнері. "
+              "Саме пік Docker-інструментів визначає, чи вистачає пам'яті раннера."
+          )
           PY
           fi
 
@@ -132,24 +157,17 @@ jobs:
           retention-days: 14
 
   release:
-    needs: build
+    needs: [validate, build]
     if: success()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     env:
-      VERSION: ${{ inputs.version }}
+      VERSION: ${{ needs.validate.outputs.version }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
-      - name: Перевірити версію
-        run: |
-          if ! [[ "$VERSION" =~ ^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+$ ]]; then
-            echo "::error::версія має вигляд YYYY.MM.N"
-            exit 1
-          fi
-
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dataset-${{ env.VERSION }}
@@ -173,4 +191,11 @@ jobs:
           else
             gh release create m0 --prerelease --target "$GITHUB_SHA" --title "M0: атлас Україна $VERSION" --notes "$notes"
           fi
+          # Один плаваючий реліз m0: старі файли інших версій не лишаємо, щоб у ньому були рівно п'ять файлів.
+          keep=$(printf '%s\n' "${files[@]##*/}")
+          gh release view m0 --json assets --jq '.assets[].name' | while read -r asset; do
+            if ! grep -qxF "$asset" <<< "$keep"; then
+              gh release delete-asset m0 "$asset" --yes
+            fi
+          done
           gh release upload m0 "${files[@]}" --clobber

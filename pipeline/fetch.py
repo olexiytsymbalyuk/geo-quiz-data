@@ -116,8 +116,9 @@ def _mismatch(name: str, actual: str, expected: str) -> ChecksumMismatch:
 def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dict[str, Path]:
     """Приводить `raw` у відповідність до `sources` і повертає головний файл кожного джерела.
 
-    Без `update`: файл з кешу або завантаження; sha256 мусить збігтися з `lock`, інакше
-    `ChecksumMismatch` (завантажений файл із хибною сумою не лишається в кеші).
+    Без `update`: файл з кешу або завантаження (з `resolved_url` із lock, якщо він є, бо `url` може
+    бути рухомим `-latest`); sha256 мусить збігтися з `lock`, інакше `ChecksumMismatch`
+    (завантажений файл із хибною сумою не лишається в кеші).
     З `update`: усе завантажується наново, `lock` переписується.
     """
     config: dict[str, Any] = yaml.safe_load(sources.read_text(encoding="utf-8"))["sources"]
@@ -140,7 +141,8 @@ def fetch_all(sources: Path, lock: Path, raw: Path, update: bool = False) -> dic
                     raise LockError(f"{label} немає в {lock}; python -m pipeline.fetch --update")
                 if entry["url"] != url:
                     raise LockError(f"{label}: url у {sources.name} ({url}) інший, ніж у lock ({entry['url']})")
-                _ensure_cached(dest, url, entry["sha256"], label)
+                # Рухомий url (`-latest`) -- лише для оновлення lock; звичайний fetch тягне знімок.
+                _ensure_cached(dest, entry.get("resolved_url", url), entry["sha256"], label)
                 entries[fname] = entry
         new_lock[source] = {"license": spec["license"], "files": entries}
         main = spec.get("main", files[0]["name"])

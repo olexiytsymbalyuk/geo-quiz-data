@@ -223,3 +223,76 @@ def test_mismatch_before_rename_keeps_existing_file_and_leaves_no_part(site: Sit
     assert dest.read_bytes() == b"previously verified"  # завантаження не підмінило файл
     assert not dest.with_name(dest.name + ".part").exists()
     assert sorted(p.name for p in dest.parent.iterdir()) == ["a.xlsx"]
+
+
+def _pin_resolved_url(site: Site, lock: Path, payload: bytes) -> str:
+    """Переписує lock так, ніби `url` -- рухоме `-latest`, а `resolved_url` -- знімок із цим payload."""
+    (site.root / "a-snapshot.xlsx").write_bytes(payload)
+    resolved = f"{site.base}/a-snapshot.xlsx"
+    data = yaml.safe_load(lock.read_text(encoding="utf-8"))
+    entry = data["sources"]["katottg"]["files"]["a.xlsx"]
+    entry["resolved_url"] = resolved
+    entry["sha256"] = hashlib.sha256(payload).hexdigest()
+    lock.write_text(yaml.safe_dump(data), encoding="utf-8")
+    return resolved
+
+
+def test_cold_cache_downloads_resolved_url_not_moving_url(site: Site, tmp_path: Path) -> None:
+    sources = _write_sources(tmp_path / "sources.yaml", site.base)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(sources, lock, raw, update=True)
+    _pin_resolved_url(site, lock, PAYLOAD_A)
+    (site.root / "a.xlsx").write_bytes(b"latest moved on")  # рухомий url уже віддає інше
+    (raw / "katottg" / "a.xlsx").unlink()
+
+    paths = fetch_all(sources, lock, raw)
+
+    assert paths["katottg"].read_bytes() == PAYLOAD_A
+
+
+def test_cold_cache_requests_resolved_url(site: Site, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sources = _write_sources(tmp_path / "sources.yaml", site.base)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(sources, lock, raw, update=True)
+    resolved = _pin_resolved_url(site, lock, PAYLOAD_A)
+    (raw / "katottg" / "a.xlsx").unlink()
+    requested: list[str] = []
+    real_download = fetch._download
+
+    def spy(url: str, dest: Path, expected_sha256: str | None = None) -> dict[str, object]:
+        requested.append(url)
+        return real_download(url, dest, expected_sha256)
+
+    monkeypatch.setattr(fetch, "_download", spy)
+
+    fetch_all(sources, lock, raw)
+
+    assert requested == [resolved]
+
+
+def test_update_still_downloads_moving_url_and_refreshes_lock(site: Site, tmp_path: Path) -> None:
+    sources = _write_sources(tmp_path / "sources.yaml", site.base)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(sources, lock, raw, update=True)
+    _pin_resolved_url(site, lock, PAYLOAD_A)
+    (site.root / "a.xlsx").write_bytes(b"latest moved on")
+
+    fetch_all(sources, lock, raw, update=True)
+
+    entry = yaml.safe_load(lock.read_text(encoding="utf-8"))["sources"]["katottg"]["files"]["a.xlsx"]
+    assert entry["sha256"] == hashlib.sha256(b"latest moved on").hexdigest()
+    assert "resolved_url" not in entry
+
+
+def test_resolved_url_with_other_content_still_fails_checksum(site: Site, tmp_path: Path) -> None:
+    sources = _write_sources(tmp_path / "sources.yaml", site.base)
+    lock, raw = tmp_path / "sources.lock", tmp_path / "raw"
+    fetch_all(sources, lock, raw, update=True)
+    _pin_resolved_url(site, lock, PAYLOAD_A)
+    (site.root / "a-snapshot.xlsx").write_bytes(b"snapshot replaced")
+    (raw / "katottg" / "a.xlsx").unlink()
+
+    with pytest.raises(ChecksumMismatch):
+        fetch_all(sources, lock, raw)
+
+    assert not (raw / "katottg" / "a.xlsx").exists()

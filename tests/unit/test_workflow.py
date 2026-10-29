@@ -48,15 +48,27 @@ def test_trigger_is_manual_dispatch_with_version_input(workflow: dict[str, Any])
     assert re.fullmatch(r"\d{4}\.\d{2}\.\d+", version["default"])
 
 
-def test_inputs_never_interpolated_into_run_scripts(workflow: dict[str, Any]) -> None:
+def test_no_expression_is_interpolated_into_any_run_script(workflow: dict[str, Any]) -> None:
     for _, step in _all_steps(workflow):
-        assert "${{ inputs." not in str(step.get("run", "")), step.get("name")
-        assert "${{ github.event.inputs." not in str(step.get("run", "")), step.get("name")
+        assert "${{" not in str(step.get("run", "")), step.get("name")
 
 
-def test_version_is_validated_in_every_job(workflow: dict[str, Any]) -> None:
-    for job in _jobs(workflow).values():
-        assert any("^[0-9]{4}" in str(step.get("run", "")) for step in job["steps"])
+def test_version_is_validated_once_and_gates_every_other_job(workflow: dict[str, Any]) -> None:
+    jobs = _jobs(workflow)
+    validate = jobs["validate"]
+    assert any("^[0-9]{4}" in str(step.get("run", "")) for step in validate["steps"])
+    assert "version" in validate["outputs"]
+    for name, job in jobs.items():
+        if name == "validate":
+            continue
+        assert "validate" in _as_list(job["needs"]), name
+        # Версія надходить лише з виходу validate, а не з сирого входу workflow.
+        assert job["env"]["VERSION"] == "${{ needs.validate.outputs.version }}", name
+        assert "inputs." not in str(job), name
+
+
+def _as_list(needs: str | list[str]) -> list[str]:
+    return [needs] if isinstance(needs, str) else needs
 
 
 def test_every_action_is_pinned_to_a_full_commit_sha(workflow: dict[str, Any]) -> None:
@@ -97,10 +109,31 @@ def test_artifacts_are_uploaded_before_gates_even_if_they_fail(workflow: dict[st
 
 def test_release_only_after_successful_build_job(workflow: dict[str, Any]) -> None:
     release = _jobs(workflow)["release"]
-    assert release["needs"] == "build"
+    assert "build" in _as_list(release["needs"])
     assert "if" not in release or "success()" in str(release["if"])
     assert any("gh release" in str(step.get("run", "")) for step in release["steps"])
     assert not any("gh release" in str(step.get("run", "")) for step in _jobs(workflow)["build"]["steps"])
+
+
+def test_release_prunes_stale_assets_before_upload(workflow: dict[str, Any]) -> None:
+    script = "\n".join(str(step.get("run", "")) for step in _jobs(workflow)["release"]["steps"])
+    assert "--json assets" in script
+    assert "gh release delete-asset" in script
+    assert script.index("gh release delete-asset") < script.index("gh release upload")
+
+
+def test_ram_summary_separates_python_and_docker_peaks_and_mentions_wikidata(workflow: dict[str, Any]) -> None:
+    summary = next(s for s in _jobs(workflow)["build"]["steps"] if "GITHUB_STEP_SUMMARY" in str(s.get("run", "")))
+    text = summary["run"]
+    assert "python_peak_rss_mb" in text and "tool_max_rss_mb" in text
+    assert "Docker" in text
+    assert "wikidata_queried_at" in text
+
+
+def test_no_apt_install_without_update(workflow: dict[str, Any]) -> None:
+    for _, step in _all_steps(workflow):
+        run = str(step.get("run", ""))
+        assert "apt-get install" not in run or "apt-get update" in run
 
 
 def test_release_is_m0_prerelease_with_clobber_and_token(workflow: dict[str, Any]) -> None:
