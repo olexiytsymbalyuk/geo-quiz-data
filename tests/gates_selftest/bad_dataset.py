@@ -25,14 +25,18 @@ EXTENT = 4096
 NEUTRAL_COUNTRY_IDS = ("wd:Q159", "wd:Q184")
 FORBIDDEN_SAMPLE = chr(0x044D)  # одна з чотирьох неукраїнських літер
 
-# Порушення -> ворота, які мають на ньому впасти.
+# Порушення -> id єдиного тесту воріт (файл::тест), що має на ньому впасти.
 VIOLATIONS: dict[str, str] = {
-    "name_ru_key": "test_no_name_ru_key",
-    "forbidden_letter": "test_no_russian_letters",
-    "sentinel_name": "test_exonym_blocklist",
-    "named_point_in_landmass": "test_no_neutral_country",
-    "bad_sha256": "test_manifest",
+    "name_ru_key": "test_no_name_ru_key.py::test_tiles_have_no_name_ru_key",
+    "forbidden_letter": "test_no_russian_letters.py::test_tiles_have_no_russian_letters",
+    "sentinel_name": "test_exonym_blocklist.py::test_tiles_have_no_blocked_names",
+    "named_point_in_landmass": "test_no_neutral_country.py::test_no_named_feature_inside_neutral_landmass",
+    "bad_sha256": "test_manifest.py::test_artifacts_match_manifest",
+    "sources_mismatch": "test_manifest.py::test_manifest_sources_match_lock",
 }
+LOCK_NAME = "sources.lock"
+NE_VERSION = "5.1.2"
+OSM_TIMESTAMP = "2099-01-01T00:00:00Z"
 
 _KYIV = "Київ"
 _TILE_Z5 = (5, 18, 11)
@@ -47,6 +51,9 @@ def tile_xy(lon: float, lat: float, zoom: int) -> tuple[int, int]:
 
 
 _TILE_Z10 = (10, *tile_xy(34.0, 45.0, 10))  # тайл у bbox Криму
+
+
+_TILE_Z8 = (8, *tile_xy(37.0, 51.0, 8))  # тайл z8 лише з нейтральною сушею: предок для правила (b) вибірки
 
 
 def _box(x0: int, y0: int, x1: int, y1: int) -> str:
@@ -82,7 +89,8 @@ def _encode(layers: list[dict[str, Any]]) -> bytes:
 
 def _write_pmtiles(path: Path, violation: str | None, sentinel: str, version: str) -> None:
     quiet = [{"name": "place", "features": [_place("ua:UA05000000000010357", "Вінниця", 2500, 1500)]}]
-    tiles = {_TILE_Z5: _tile_layers(violation, sentinel), _TILE_Z10: quiet}
+    land_only = [{"name": "landmass", "features": [{"geometry": _box(0, 0, EXTENT, EXTENT), "properties": {"class": "neutral"}}]}]
+    tiles = {_TILE_Z5: _tile_layers(violation, sentinel), _TILE_Z10: quiet, _TILE_Z8: land_only}
     header = {
         "version": 3,
         "tile_compression": Compression.GZIP,
@@ -134,6 +142,21 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _lock_sources() -> dict[str, Any]:
+    """Крихітний аналог `config/sources.lock`: лише те, що читають ворота."""
+    return {
+        "osm_ukraine": {"files": {"ukraine.osm.pbf": {"sha256": "a" * 64, "osm_timestamp": OSM_TIMESTAMP}}},
+        "ne_admin0_ukr": {
+            "files": {"ne.shp": {"url": f"https://example.invalid/v{NE_VERSION}/ne.shp", "sha256": "b" * 64}}
+        },
+    }
+
+
+def lock_path(dataset: Path) -> Path:
+    """Крихітний lock лежить поруч із текою релізу."""
+    return dataset.parent / LOCK_NAME
+
+
 def build_dataset(root: Path, violation: str | None = None, version: str = VERSION) -> Path:
     """Збирає `root/<версія>/` з п'ятьма файлами; `violation=None` — «добрий» датасет, усі ворота зелені."""
     if violation is not None and violation not in VIOLATIONS:
@@ -151,6 +174,17 @@ def build_dataset(root: Path, violation: str | None = None, version: str = VERSI
     if violation == "bad_sha256":
         first = next(iter(artifacts))
         artifacts[first] = {**artifacts[first], "sha256": "0" * 64}
-    manifest = {"dataset_version": version, "artifacts": artifacts}
+    lock_sources = _lock_sources()
+    (root / LOCK_NAME).write_text(json.dumps({"sources": lock_sources}), encoding="utf-8")  # JSON є підмножиною YAML
+    sources = json.loads(json.dumps(lock_sources))
+    if violation == "sources_mismatch":
+        sources["osm_ukraine"]["files"]["ukraine.osm.pbf"]["sha256"] = "c" * 64
+    manifest = {
+        "dataset_version": version,
+        "sources": sources,
+        "ne_version": NE_VERSION,
+        "osm_timestamp": OSM_TIMESTAMP,
+        "artifacts": artifacts,
+    }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return out

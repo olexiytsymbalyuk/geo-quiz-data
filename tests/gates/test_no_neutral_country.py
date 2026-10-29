@@ -18,6 +18,7 @@ from tests.gates.gate_support import (
 
 def test_gazetteer_has_no_neutral_country_rows(gazetteer: Gazetteer, policy: PolicyView) -> None:
     assert policy.neutral_countries
+    assert gazetteer.entities, "у газетирі немає сутностей — перевірка була б порожньою"
     found = neutral_row_violations(gazetteer, policy.neutral_countries)
 
     assert not found, summarize(found)
@@ -28,6 +29,7 @@ def test_country_layer_has_no_neutral_country(tiles: TileSet, dataset_dir: Path)
     neutral_ids = frozenset(metrics["neutral_country_ids"])
     assert neutral_ids, "metrics.json без neutral_country_ids — перевірка була б порожньою"
 
+    assert tiles.attributes, "у PMTiles немає жодної фічі — перевірка була б порожньою"
     found = neutral_country_layer_violations(tiles.attributes, neutral_ids)
 
     assert not found, summarize(found)

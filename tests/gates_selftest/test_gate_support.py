@@ -152,6 +152,48 @@ def test_select_tiles_takes_all_low_zoom_border_zone_and_a_fixed_share_of_the_re
     assert 0.005 * len(inland) < len(chosen & inland) < 0.05 * len(inland)
 
 
+# Відомі прикордонні поселення, що лежали за межами перших прямокутників (north Рівненщини, Волині, Луганщини).
+BORDER_POINTS = [
+    (26.0, 51.92),
+    (24.5, 51.91),
+    (38.68, 50.0),
+    (38.683, 50.004),
+    (34.0, 52.4),
+    (31.5, 52.5),
+]
+
+
+@pytest.mark.parametrize("zoom", [10, 12])
+@pytest.mark.parametrize(("lon", "lat"), BORDER_POINTS)
+def test_border_zone_covers_known_border_points(lon: float, lat: float, zoom: int) -> None:
+    x, y = tile_xy(lon, lat, zoom)
+
+    assert gs.in_border_zone(zoom, x, y)
+
+
+def test_select_tiles_takes_every_descendant_of_a_z8_tile_with_landmass() -> None:
+    """Правило (b), похідне від даних: предок на z8 містить нейтральну сушу -> усі нащадки z > 8 у вибірці."""
+    parent = (8, 100, 60)
+    inside = {(z, 100 * 2 ** (z - 8) + dx, 60 * 2 ** (z - 8) + dy) for z in (9, 10, 12) for dx in (0, 1) for dy in (0, 1)}
+    elsewhere = {(10, 700 + i, 400) for i in range(3000)}  # далеко від прикордоння й від предка
+    refs = inside | elsewhere | {parent}
+
+    without = gs.select_tiles(refs)
+    with_rule = gs.select_tiles(refs, landmass_z8=frozenset({(100, 60)}))
+
+    assert inside <= with_rule
+    assert not inside <= without
+    assert len(with_rule & elsewhere) == len(without & elsewhere)
+
+
+def test_landmass_z8_tiles_are_read_from_the_archive(tmp_path: Path) -> None:
+    dataset = build_dataset(tmp_path)
+
+    found = gs.TileSet(gs.find_one(dataset, "*.pmtiles")).landmass_z8()
+
+    assert found == frozenset({tile_xy(37.0, 51.0, 8)})  # тайл z5 із сушею не рахується, z10 без суші теж
+
+
 def test_border_zone_covers_every_listed_region_center() -> None:
     for west, south, east, north in gs.BORDER_BBOXES.values():
         x, y = tile_xy((west + east) / 2, (south + north) / 2, 10)
@@ -217,3 +259,25 @@ def test_tile_letter_check_reports_both_byte_and_decoded_hits(tmp_path: Path) ->
     assert any("в байтах" in v for v in found)
     assert any("в атрибутах" in v for v in found)
     assert all(FORBIDDEN_SAMPLE not in v for v in found)
+
+
+def test_multipoint_is_a_violation_when_any_point_is_inside() -> None:
+    mixed = {"type": "MultiPoint", "coordinates": [(1000, 1000), (3000, 1000)]}
+    outside = {"type": "MultiPoint", "coordinates": [(2500, 1000), (3000, 1000)]}
+
+    assert gs.feature_inside_landmass(mixed, LANDMASS) is True
+    assert gs.feature_inside_landmass(outside, LANDMASS) is False
+
+
+def test_lock_source_violations_catch_each_field() -> None:
+    sources = {
+        "osm_ukraine": {"files": {"a.pbf": {"osm_timestamp": "2026-01-01T00:00:00Z"}}},
+        "ne_admin0_ukr": {"files": {"a.shp": {"url": "https://x.invalid/v5.1.2/a.shp"}}},
+    }
+    good = {"sources": sources, "ne_version": "5.1.2", "osm_timestamp": "2026-01-01T00:00:00Z"}
+
+    assert gs.lock_source_violations(good, {"sources": sources}) == []
+    assert gs.lock_source_violations({**good, "sources": {}}, {"sources": sources})
+    assert gs.lock_source_violations({**good, "ne_version": "5.2.0"}, {"sources": sources})
+    assert gs.lock_source_violations({**good, "osm_timestamp": "2026-01-02T00:00:00Z"}, {"sources": sources})
+    assert gs.lock_source_violations(good, {})  # порожній lock не може підтвердити маніфест

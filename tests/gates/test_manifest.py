@@ -10,6 +10,7 @@ from tests.gates.gate_support import (
     Gazetteer,
     JsonArtifact,
     TileSet,
+    lock_source_violations,
     manifest_file_violations,
     summarize,
     version_violations,
@@ -26,6 +27,7 @@ def test_artifacts_match_manifest(dataset_dir: Path, manifest: dict[str, Any]) -
 def test_dataset_version_is_the_same_everywhere(
     dataset_dir: Path, manifest: dict[str, Any], tiles: TileSet, gazetteer: Gazetteer, gazetteer_json: JsonArtifact
 ) -> None:
+    assert tiles.metadata and gazetteer.meta and gazetteer.entities, "порожній артефакт — перевірка була б порожньою"
     versions = {
         "manifest.json": manifest.get("dataset_version"),
         "метадані pmtiles": tiles.metadata.get("dataset_version"),
@@ -46,3 +48,11 @@ def _single(values: Any) -> object:
     """Єдине значення або `None`, якщо значень немає чи їх кілька різних."""
     distinct = set(values)
     return next(iter(distinct)) if len(distinct) == 1 else None
+
+
+def test_manifest_sources_match_lock(manifest: dict[str, Any], lock: dict[str, Any]) -> None:
+    """Версії й походження джерел у маніфесті — ті, що зафіксовані в `config/sources.lock`."""
+    assert manifest.get("sources"), "маніфест без sources"
+    found = lock_source_violations(manifest, lock)
+
+    assert not found, summarize(found)

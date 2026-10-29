@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
+from pipeline.paths import ROOT
 from pipeline.policy import load_policy
 from tests.gates.gate_support import (
     MANIFEST_NAME,
@@ -22,6 +24,7 @@ from tests.gates.gate_support import (
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--lock", action="store", default=None, help="config/sources.lock (за замовчуванням з кореня репозиторію)")
     parser.addoption("--dataset", action="store", default=None, help="тека релізу dist/<версія>/ (обов'язково)")
 
 
@@ -40,6 +43,16 @@ def dataset_dir(request: pytest.FixtureRequest) -> Path:
     if not path.is_dir():
         raise pytest.UsageError(f"--dataset: {path.name} не є текою")
     return path
+
+
+@pytest.fixture(scope="session")
+def lock(request: pytest.FixtureRequest) -> dict[str, Any]:
+    option = request.config.getoption("--lock")
+    path = Path(option).resolve() if option else ROOT / "config" / "sources.lock"
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(loaded, dict):
+        raise pytest.UsageError(f"--lock: {path.name} не є відображенням")
+    return loaded
 
 
 @pytest.fixture(scope="session")

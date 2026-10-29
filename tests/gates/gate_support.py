@@ -47,6 +47,7 @@ FORBIDDEN_ESCAPE_RE = re.compile(rb"\\u0(?:401|451|42[abd]|44[abd])", re.IGNOREC
 
 # Допустимі ключі `names` у газетирі.
 ALLOWED_NAME_KEYS = frozenset({"uk", "uk_aliases", "en", "en_aliases", "local", "former"})
+_NE_TAG_RE = re.compile(r"/v(\d+\.\d+\.\d+)/")
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,40}$")
 _RU_KEY_RE = re.compile(r"^(name[:_])?ru($|[:_\-])")
 
@@ -145,19 +146,22 @@ FULL_ZOOM_MAX = 8
 SAMPLE_RATE = 0.02
 SAMPLE_SEED = 20261029
 
-# (мін. довгота, мін. широта, макс. довгота, макс. широта). Крим — з Додатку Б; решта — власний вибір виконавця
-# (бриф називає області, але не координати): прямокутники із запасом навколо прикордонної смуги.
+# Правило (a): (мін. довгота, мін. широта, макс. довгота, макс. широта). Крим — з Додатку Б; решта — власний вибір
+# виконавця (бриф називає області, але не координати). Усі прямокутники розширено щонайменше на 0,3° за кордон:
+# поселення Рівненщини й Волині лежать до 51,93° пн. ш., Луганщини — на 38,68° сх. д. / 50,0° пн. ш.
 BORDER_BBOXES: Mapping[str, tuple[float, float, float, float]] = {
-    "Крим": (32.4, 44.3, 36.7, 46.3),
-    "Донбас": (36.4, 46.8, 40.3, 50.0),
-    "Харківщина": (34.9, 48.6, 38.5, 50.5),
-    "Сумщина": (33.0, 50.0, 35.9, 52.4),
-    "Чернігівщина": (30.4, 50.3, 33.6, 52.4),
-    "Київщина": (29.3, 50.3, 31.4, 51.7),
-    "Житомирщина": (27.6, 50.4, 29.8, 51.9),
-    "Рівненщина": (25.8, 50.6, 28.2, 51.9),
-    "Волинь": (23.6, 50.6, 25.9, 51.9),
+    "Крим": (32.0, 44.0, 37.0, 46.6),
+    "Донбас": (36.0, 46.4, 40.6, 50.0),
+    "Луганщина": (37.8, 48.0, 40.6, 50.6),
+    "Харківщина": (34.5, 48.3, 38.9, 50.8),
+    "Сумщина": (32.6, 49.7, 36.3, 52.8),
+    "Чернігівщина": (30.0, 50.0, 34.0, 52.8),
+    "Київщина": (28.9, 50.0, 31.8, 52.1),
+    "Житомирщина": (27.2, 50.1, 30.2, 52.3),
+    "Рівненщина": (25.4, 50.3, 28.6, 52.3),
+    "Волинь": (23.2, 50.3, 26.3, 52.3),
 }
+LANDMASS_PARENT_ZOOM = 8
 
 
 def tile_bounds(z: int, x: int, y: int) -> tuple[float, float, float, float]:
@@ -178,13 +182,28 @@ def in_border_zone(z: int, x: int, y: int) -> bool:
     )
 
 
-def select_tiles(refs: Iterable[TileKey], seed: int = SAMPLE_SEED, rate: float = SAMPLE_RATE) -> set[TileKey]:
-    """z <= 8 — усі; z > 8 — усі тайли прикордоння плюс `rate` решти (фіксований seed, відтворювано)."""
+def has_landmass_ancestor(z: int, x: int, y: int, landmass_z8: frozenset[tuple[int, int]]) -> bool:
+    """Правило (b): предок тайла на z8 містить шар `landmass`."""
+    shift = z - LANDMASS_PARENT_ZOOM
+    return shift >= 0 and (x >> shift, y >> shift) in landmass_z8
+
+
+def select_tiles(
+    refs: Iterable[TileKey],
+    seed: int = SAMPLE_SEED,
+    rate: float = SAMPLE_RATE,
+    landmass_z8: frozenset[tuple[int, int]] = frozenset(),
+) -> set[TileKey]:
+    """z <= 8 — усі; z > 8 — усі тайли прикордоння, або з предком z8, що має `landmass`, плюс `rate` решти.
+
+    Прикордоння = об'єднання (a) прямокутників `BORDER_BBOXES` і (b) похідного від даних правила
+    `has_landmass_ancestor`. Seed фіксований: вибірка відтворювана.
+    """
     rng = random.Random(seed)
     chosen: set[TileKey] = set()
     for ref in sorted(refs):
         z, x, y = ref
-        if z <= FULL_ZOOM_MAX or in_border_zone(z, x, y):
+        if z <= FULL_ZOOM_MAX or in_border_zone(z, x, y) or has_landmass_ancestor(z, x, y, landmass_z8):
             chosen.add(ref)
         elif rng.random() < rate:
             chosen.add(ref)
@@ -222,11 +241,11 @@ class TileSet:
             self.metadata: dict[str, Any] = Reader(MmapSource(handle)).metadata()
         self._attributes: list[TileFeature] | None = None
 
-    def raw_tiles(self, wanted: set[TileKey] | None = None) -> Iterator[tuple[TileKey, bytes]]:
-        """Розпаковані (gzip) тайли архіву; `wanted` обмежує вибірку."""
+    def raw_tiles(self, wanted: set[TileKey] | None = None, zoom: int | None = None) -> Iterator[tuple[TileKey, bytes]]:
+        """Розпаковані (gzip) тайли архіву; `wanted` і `zoom` обмежують вибірку."""
         with self.path.open("rb") as handle:
             for zxy, data in all_tiles(MmapSource(handle)):
-                if wanted is not None and zxy not in wanted:
+                if (wanted is not None and zxy not in wanted) or (zoom is not None and zxy[0] != zoom):
                     continue
                 payload = bytes(data)
                 yield zxy, (gzip.decompress(payload) if payload[:2] == b"\x1f\x8b" else payload)
@@ -234,6 +253,15 @@ class TileSet:
     def refs(self) -> list[TileKey]:
         with self.path.open("rb") as handle:
             return sorted(zxy for zxy, _ in all_tiles(MmapSource(handle)))
+
+    def landmass_z8(self) -> frozenset[tuple[int, int]]:
+        """(x, y) тайлів z8, у яких є шар `landmass` (шар у тайлі існує лише з фічами)."""
+        found = {
+            (x, y)
+            for (_, x, y), tile in self.raw_tiles(zoom=LANDMASS_PARENT_ZOOM)
+            if any(layer == LANDMASS_LAYER and role == "layer_name" for layer, role, _ in tile_string_fields(tile))
+        }
+        return frozenset(found)
 
     @property
     def attributes(self) -> list[TileFeature]:
@@ -488,14 +516,21 @@ def _valid(geometry: BaseGeometry) -> BaseGeometry:
 
 
 def feature_inside_landmass(geometry: dict[str, Any], landmass: BaseGeometry, seam_free: BaseGeometry | None = None) -> bool:
-    """Точка — `within`; лінія чи полігон — перетин із сушею без шва довжиною/площею більше за допуск.
+    """Точка (і кожна точка `MultiPoint`) — `within` нестиснутої суші; лінія чи полігон — перетин із сушею, стисненою
+    на `SEAM_TOLERANCE`, довжиною/площею більше за допуск.
+
+    Свідоме відхилення від Step 4 брифу (там «перетин > ε» з самою сушею), ратифіковане контролером (Ruling 34):
+    контур і нейтральна суша спрощуються tippecanoe окремо, тож уздовж спільного кордону завжди лишається шов
+    шириною до ~2 тайлових одиниць. Це артефакт спрощення, а не помилка конвеєра; без допуску ворота були б
+    червоні на кожному релізі. Точки шва не мають (виміряно: 0 порушень на нестиснутій суші), тому вони
+    перевіряються без допуску.
 
     `seam_free` — суша, стиснена на `SEAM_TOLERANCE` (обчислюється, якщо не передана).
     """
     shaped = _valid(shape(geometry))
     kind = geometry["type"]
     if kind in _POINT_TYPES:
-        return bool(landmass.contains(shaped))
+        return any(landmass.contains(point) for point in getattr(shaped, "geoms", [shaped]))
     deep = landmass.buffer(-SEAM_TOLERANCE) if seam_free is None else seam_free
     overlap = shaped.intersection(deep)
     if kind in _LINE_TYPES:
@@ -505,7 +540,7 @@ def feature_inside_landmass(geometry: dict[str, Any], landmass: BaseGeometry, se
 
 def neutral_geometry_violations(tileset: TileSet) -> tuple[list[str], int]:
     """(порушення, кількість перевірених тайлів з нейтральною сушею) по вибірці тайлів."""
-    wanted = select_tiles(tileset.refs())
+    wanted = select_tiles(tileset.refs(), landmass_z8=tileset.landmass_z8())
     found: list[str] = []
     checked = 0
     # Фічі приходять згрупованими за тайлом: геометрія одного тайла живе лише під час його перевірки.
@@ -559,6 +594,38 @@ def manifest_file_violations(dataset: Path, manifest: Mapping[str, Any]) -> list
     for name in sorted(present - set(artifacts) - {MANIFEST_NAME}):
         found.append(f"{name}: файл поза маніфестом")
     return found
+
+
+def lock_source_violations(manifest: Mapping[str, Any], lock: Mapping[str, Any]) -> list[str]:
+    """`sources`, `ne_version` і `osm_timestamp` маніфесту відповідають `config/sources.lock`."""
+    lock_sources: Mapping[str, Any] = lock.get("sources") or {}
+    found: list[str] = []
+    if not lock_sources:
+        return ["sources.lock: порожній або без sources"]
+    if manifest.get("sources") != lock_sources:
+        manifest_sources: Mapping[str, Any] = manifest.get("sources") or {}
+        differing = sorted(name for name in {*manifest_sources, *lock_sources} if manifest_sources.get(name) != lock_sources.get(name))
+        found.append(f"manifest.sources не збігається з lock: джерела {', '.join(differing) or '(усі)'}")
+    if manifest.get("ne_version") != ne_version_from_sources(lock_sources):
+        found.append("manifest.ne_version не збігається з тегом у lock")
+    if manifest.get("osm_timestamp") != osm_timestamp_from_sources(lock_sources):
+        found.append("manifest.osm_timestamp не збігається з lock")
+    return found
+
+
+def _first_file(sources: Mapping[str, Any], source: str) -> Mapping[str, Any]:
+    files: Mapping[str, Any] = (sources.get(source) or {}).get("files") or {}
+    return next(iter(files.values()), {})
+
+
+def ne_version_from_sources(sources: Mapping[str, Any]) -> str | None:
+    match = _NE_TAG_RE.search(str(_first_file(sources, "ne_admin0_ukr").get("url", "")))
+    return match.group(1) if match else None
+
+
+def osm_timestamp_from_sources(sources: Mapping[str, Any]) -> str | None:
+    value = _first_file(sources, "osm_ukraine").get("osm_timestamp")
+    return None if value is None else str(value)
 
 
 def version_violations(versions: Mapping[str, object], expected: str) -> list[str]:
