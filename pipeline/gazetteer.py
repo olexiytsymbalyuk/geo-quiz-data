@@ -346,6 +346,14 @@ def _startable_by_tier(entities: list[Entity], min_count: int) -> dict[int, froz
     }
 
 
+def effective_chain_tier(tier: int, startable: Mapping[int, frozenset[str]]) -> int:
+    """Найменший непорожній пул `startable` з ярусом ≥ `tier` (Ruling 22); порожні всі -> `GazetteerError`."""
+    for candidate in sorted(t for t in startable if t >= tier):
+        if startable[candidate]:
+            return candidate
+    raise GazetteerError(f"немає непорожнього пулу стартових літер для ярусу {tier}")
+
+
 def _assign_chain_letters(
     entities: list[Entity], startable: Mapping[int, frozenset[str]], metrics: Counter[str]
 ) -> list[Entity]:
@@ -355,11 +363,14 @@ def _assign_chain_letters(
         if tier is None:
             result.append(entity)
             continue
+        pool_tier = effective_chain_tier(tier, startable)
+        if pool_tier != tier:
+            metrics["chain_tier_fallback"] += 1
         try:
-            letter = chain_letter(entity.names["uk"], startable[tier])
+            letter = chain_letter(entity.names["uk"], startable[pool_tier])
         except ValueError as exc:
             raise GazetteerError(f"у назві сутності {entity.id} немає літер алфавіту") from exc
-        if letter not in startable[tier]:
+        if letter not in startable[pool_tier]:
             metrics["chain_letter_not_startable"] += 1
         result.append(dataclasses.replace(entity, chain_letter=letter))
     return result
@@ -533,6 +544,7 @@ _COUNTER_KEYS = (
     "peak_no_name",
     "capital_unknown_code",
     "chain_letter_not_startable",
+    "chain_tier_fallback",
 )
 
 

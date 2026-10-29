@@ -16,6 +16,7 @@ from pipeline.gazetteer import (
     GazetteerError,
     GazetteerResult,
     build_gazetteer,
+    effective_chain_tier,
     resolve_capitals,
 )
 from pipeline.gazetteer_io import write_scope_json, write_sqlite
@@ -420,6 +421,36 @@ def test_chain_letters_belong_to_startable_of_their_tier() -> None:
 def test_chain_letter_value() -> None:
     e = by_id(build())[f"ua:{VIL}"]  # «Сілів» -> «в»
     assert e.chain_letter == "в"
+
+
+def test_tier_one_letter_falls_back_to_smallest_nonempty_pool() -> None:
+    units = [
+        KatottgUnit(OBL, "O", "Тестівська область", ()),
+        KatottgUnit(KYV, "K", "Адам", ()),
+        KatottgUnit(CAP, "M", "Бадам", (OBL,)),
+        KatottgUnit(BIG, "M", "Мам", (OBL,)),
+        KatottgUnit(MID, "M", "Мом", (OBL,)),
+    ]
+    policy = dataclasses.replace(POLICY, startable_min=2)
+    result = build(units=units, capitals={OBL: CAP}, policy=policy)
+    got = by_id(result)
+    assert result.startable[1] == frozenset()  # пул ярусу 1 малий: чесний вимір
+    assert result.startable[2] == frozenset({"м"})
+    assert effective_chain_tier(1, result.startable) == 2
+    assert effective_chain_tier(2, result.startable) == 2
+    for code in (KYV, CAP):
+        assert got[f"ua:{code}"].tier == 1
+        assert got[f"ua:{code}"].chain_letter in result.startable[2]
+    assert result.metrics["chain_tier_fallback"] == 2
+    assert result.metrics["chain_letter_not_startable"] == 0
+
+
+def test_effective_chain_tier_raises_when_all_pools_empty() -> None:
+    empty = {tier: frozenset[str]() for tier in (1, 2, 3, 4)}
+    with pytest.raises(GazetteerError):
+        effective_chain_tier(1, empty)
+    with pytest.raises(GazetteerError):
+        build(policy=dataclasses.replace(POLICY, startable_min=1000))
 
 
 # --- запис ---
