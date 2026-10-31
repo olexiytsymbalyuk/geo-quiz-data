@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from pipeline.paths import CONFIG, RAW, ROOT, WORK, dist_dir, validate_version
-from pipeline.policy import Policy, Rename, load_policy
+from pipeline.policy import RENAME_KINDS, Policy, Rename, load_policy
 
 # Заборонені літери — лише escape-послідовностями (правило 2.1).
 _FORBIDDEN = re.compile(r"[\u0401\u0451\u042b\u044b\u042a\u044a\u042d\u044d]")
@@ -85,6 +85,47 @@ def test_renames_cover_each_wave() -> None:
     assert by_new["Шептицький"].date == "2024-09-19"
     assert by_new["Південне"].date == "2024-10-09"
     assert by_new["Дніпро"].date.startswith("2016-")
+
+
+def test_renames_have_kind_and_optional_katottg() -> None:
+    renames = load_policy().renames_check
+    assert all(r.kind in RENAME_KINDS for r in renames)
+    by_new = {r.new: r for r in renames}
+    assert by_new["Дніпро"].kind == "soviet"
+    assert by_new["Шептицький"].kind == "imperial"
+    assert all(r.katottg is None or re.fullmatch(r"UA\d{17}", r.katottg) for r in renames)
+
+
+def test_homonym_exceptions_are_codes_of_old_names() -> None:
+    p = load_policy()
+    assert len(p.renames_homonym_exceptions) == 7  # Красний Лиман ×2, Красний Луч ×2, Ватутіне, Южне ×2 (R42)
+    assert all(re.fullmatch(r"UA\d{17}", code) for code in p.renames_homonym_exceptions)
+
+
+def test_load_policy_rejects_bad_kind_and_bad_exception_code(tmp_path: Path) -> None:
+    base = (CONFIG / "policy.yaml").read_text(encoding="utf-8")
+    bad_kind = tmp_path / "a.yaml"
+    bad_kind.write_text(base.replace("kind: soviet", "kind: tsarist", 1), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_policy(bad_kind)
+    bad_code = tmp_path / "b.yaml"
+    bad_code.write_text(
+        base + "\nrenames_homonym_exceptions:\n  - {katottg: UA1, name: Южне, note: x}\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError):
+        load_policy(bad_code)
+
+
+def test_homonym_exception_must_name_an_old_form_and_not_echo_it(tmp_path: Path) -> None:
+    base = (CONFIG / "policy.yaml").read_text(encoding="utf-8")
+    stray = tmp_path / "c.yaml"
+    stray.write_text(
+        base + "\nrenames_homonym_exceptions:\n  - {katottg: UA01100030020040197, name: Вигадане, note: x}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="№1") as excinfo:
+        load_policy(stray)
+    assert "Вигадане" not in str(excinfo.value)
 
 
 def test_load_policy_rejects_missing_keys(tmp_path: Path) -> None:

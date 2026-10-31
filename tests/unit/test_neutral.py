@@ -22,6 +22,7 @@ def _policy(named: frozenset[str] = frozenset({"PL"})) -> Policy:
         named_neighbours=named,
         exonym_blocklist=(),
         renames_check=(),
+        renames_homonym_exceptions=frozenset(),
         startable_min=10,
         blocked_sentinel="zz-blocked-test-form",
     )
