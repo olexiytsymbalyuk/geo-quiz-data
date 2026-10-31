@@ -16,12 +16,14 @@ from pathlib import Path
 import numpy as np
 import openpyxl
 import shapefile
+import yaml
 from shapely.geometry import Polygon, box
 from shapely.geometry.polygon import orient
 
 from pipeline.gazetteer import SCOPE, TIERS, Entity, GazetteerResult, effective_chain_tier
 from pipeline.gazetteer_io import write_sqlite
 from pipeline.letters import ALPHABET, chain_letter, compute_startable
+from pipeline.paths import CONFIG
 from pipeline.policy import load_policy
 from tests.gates.geo_support import CRIMEA_ANCHORS, FINEST_ZOOM, tile_to_lonlat, tiles_covering
 
@@ -75,15 +77,18 @@ def _title(index: int, first: str | None = None) -> str:
     return (first or word[0]).upper() + word[1:]
 
 
-def _names(uk: str) -> dict[str, object]:
-    return {"uk": uk, "en": None, "uk_aliases": [], "en_aliases": [], "local": None, "former": []}
+def _names(uk: str, former: Sequence[dict[str, str]] = ()) -> dict[str, object]:
+    return {"uk": uk, "en": None, "uk_aliases": [], "en_aliases": [], "local": None, "former": list(former)}
 
 
-def _entity(code: str, kind: str, name: str, parents: Sequence[str], version: str, tier: int | None = None) -> Entity:
+def _entity(
+    code: str, kind: str, name: str, parents: Sequence[str], version: str, tier: int | None = None,
+    former: Sequence[dict[str, str]] = (),
+) -> Entity:
     return Entity(
         id=f"ua:{code}",
         type=kind,
-        names=_names(name),
+        names=_names(name, former),
         katottg=code,
         parents=[f"ua:{p}" for p in parents],
         tiers={} if tier is None else {SCOPE: tier},
@@ -159,11 +164,32 @@ def _cities(hromadas: Sequence[Entity], version: str) -> list[Entity]:
 
 
 def _renamed_villages(hromadas: Sequence[Entity], version: str) -> list[Entity]:
-    """Сутність із новою назвою для кожної пари `policy.renames_check`: село ярусу 4."""
+    """Сутність із новою назвою для кожної пари `policy.renames_check`: пункт ярусу 4 типу `selyshche` із `former[]`.
+
+    Тип `selyshche` (не `selo`), щоб однойменні села-винятки відрізнялися від перейменованої сутності за типом.
+    """
     parent = hromadas[CRIMEAN_HROMADAS]
     return [
-        _entity(_code(_prefix(parent), 50000 + i), "selo", rename.new, _parent_codes(parent), version, 4)
+        _entity(
+            _code(_prefix(parent), 50000 + i), "selyshche", rename.new, _parent_codes(parent), version, 4,
+            [{"name": rename.old, "kind": rename.kind, "until": rename.date}],
+        )
         for i, rename in enumerate(load_policy().renames_check)
+    ]
+
+
+def _exception_old_names() -> dict[str, str]:
+    """Код КАТОТТГ -> назва села-винятку (`old` його пари): `Policy` віддає лише коди, назви беруться з YAML."""
+    raw = yaml.safe_load((CONFIG / "policy.yaml").read_text(encoding="utf-8"))
+    names = {item["katottg"]: item["name"] for item in raw["renames_homonym_exceptions"]}
+    return {code: names[code] for code in sorted(load_policy().renames_homonym_exceptions)}
+
+
+def _exception_villages(hromadas: Sequence[Entity], version: str) -> list[Entity]:
+    """Справжні села-винятки R42: `selo` зі справжнім кодом КАТОТТГ і старою формою як канонічною назвою."""
+    parent = hromadas[CRIMEAN_HROMADAS]
+    return [
+        _entity(code, "selo", name, _parent_codes(parent), version, 4) for code, name in _exception_old_names().items()
     ]
 
 
@@ -187,7 +213,10 @@ def good_world(version: str) -> tuple[list[Entity], dict[int, frozenset[str]]]:
     oblasts = _oblasts(version)
     raions = _raions(oblasts, version)
     hromadas = _hromadas(raions, version)
-    entities = [*oblasts, *raions, *hromadas, *_cities(hromadas, version), *_renamed_villages(hromadas, version)]
+    entities = [
+        *oblasts, *raions, *hromadas, *_cities(hromadas, version), *_renamed_villages(hromadas, version),
+        *_exception_villages(hromadas, version),
+    ]
     lat, lon = VINNYTSIA_POINT
     entities = _replace(entities, _id_of(entities, VINNYTSIA[0]), lat=lat, lon=lon)
     return _with_letters(entities, load_policy().startable_min)
@@ -223,7 +252,21 @@ def apply_violation(
     if violation == "katottg_name_differs":  # назва в газетирі відрізняється від еталона КАТОТТГ
         target = next(e for e in entities if e.type == "hromada")
         return _replace(entities, target.id, names=_names("Невірна назва")), startable
-    return entities, startable
+    return _apply_rename_violation(violation, entities), startable
+
+
+def _apply_rename_violation(violation: str | None, entities: list[Entity]) -> list[Entity]:
+    """Порушення воріт перейменувань; еталон КАТОТТГ будується з «доброго» світу, тож код поза ним дав би другий збій."""
+    renames = load_policy().renames_check
+    if violation == "former_missing":
+        return _replace(entities, _id_of(entities, renames[0].new), names=_names(renames[0].new))
+    if violation == "homonym_without_exception":  # однойменне село без коду: винятку за кодом йому не дістатися
+        stray = Entity(id="ua:UA05000000000099999", type="selo", names=_names(renames[0].old), dataset_version=entities[0].dataset_version)
+        return [*entities, stray]
+    if violation == "exception_code_unknown":
+        dropped = f"ua:{sorted(load_policy().renames_homonym_exceptions)[0]}"
+        return [e for e in entities if e.id != dropped]
+    return entities
 
 
 def write_gazetteer(path: Path, entities: list[Entity], startable: dict[int, frozenset[str]], version: str) -> None:

@@ -304,6 +304,7 @@ class PolicyView:
     neutral_countries: frozenset[str] = field(repr=False)
     blocked: frozenset[str] = field(repr=False)
     blocked_sentinel_key: str = field(repr=False)
+    renames_homonym_exceptions: frozenset[str] = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -449,7 +450,7 @@ def policy_view(policy: Policy) -> PolicyView:
     sentinel_key = normalize_key(policy.blocked_sentinel)
     if sentinel_key is None:
         raise ValueError("сентинел блок-листа містить заборонену літеру")
-    return PolicyView(policy.neutral_countries, blocked_keys(policy), sentinel_key)
+    return PolicyView(policy.neutral_countries, blocked_keys(policy), sentinel_key, policy.renames_homonym_exceptions)
 
 
 def blocked_keys(policy: Policy) -> frozenset[str]:

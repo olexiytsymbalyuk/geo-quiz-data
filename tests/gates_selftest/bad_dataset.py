@@ -40,6 +40,10 @@ VIOLATIONS: dict[str, str] = {
     "perekop_border_line": "test_crimea_is_ukraine.py::test_no_state_border_through_perekop",
     "katottg_name_differs": "test_occupied_uses_katottg.py::test_names_equal_katottg",
     "old_name_in_tiles": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
+    "former_missing": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
+    "homonym_without_exception": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
+    "exception_code_unknown": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
+    "old_name_in_json": "test_occupied_uses_katottg.py::test_old_names_stay_out_of_scope_json",
     "districts_120": "test_counts.py::test_entity_count[raion]",
     "outline_hole": "test_borders_full.py::test_land_outline_is_one_polygon",
     "border_gap": "test_borders_full.py::test_state_border_has_no_gaps",
@@ -181,8 +185,11 @@ def _write_pmtiles(path: Path, violation: str | None, sentinel: str, version: st
         writer.finalize(header, metadata)
 
 
-def _write_json(path: Path, version: str) -> None:
+def _write_json(path: Path, version: str, violation: str | None = None) -> None:
     entities = [{"id": "ua:UA80000000000093317", "type": "city", "name": _KYIV, "lat": 50.45, "lon": 30.52}]
+    if violation == "old_name_in_json":
+        old = load_policy().renames_check[0].old
+        entities.append({"id": "ua:UA05000000000010359", "type": "selo", "name": old, "lat": 49.0, "lon": 28.0})
     payload = {"dataset_version": version, "startable": {}, "entities": entities}
     path.write_text(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -228,7 +235,7 @@ def build_dataset(root: Path, violation: str | None = None, version: str = VERSI
     tiny_world.write_gazetteer(out / f"gazetteer-{version}.sqlite", entities, startable, version)
     ne_deviation = NE_DEVIATIONS.get(violation or "")
     tiny_world.write_raw(raw_path(out), tiny_world.good_world(version)[0], ne_deviation=ne_deviation)  # еталон КАТОТТГ — добрий
-    _write_json(out / f"gazetteer-ukraine-{version}.json", version)
+    _write_json(out / f"gazetteer-ukraine-{version}.json", version, violation)
     (out / "metrics.json").write_text(
         json.dumps({"dataset_version": version, "neutral_country_ids": list(NEUTRAL_COUNTRY_IDS)}), encoding="utf-8"
     )

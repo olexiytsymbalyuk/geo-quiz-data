@@ -22,11 +22,12 @@ ARK_ID = "ua:UA01000000000013043"
 
 def row(
     entity_id: str, kind: str, name: str, *, code: str = "", parents: list[str] | None = None, country: str = "UA",
-    tier: int | None = None, chain: str | None = None,
+    tier: int | None = None, chain: str | None = None, former: tuple[str, ...] = (),
 ) -> dict[str, Any]:  # fmt: skip
+    names = {"uk": name, "former": [{"name": old, "kind": "soviet", "until": "2016-02-04"} for old in former]}
     return {
         "id": entity_id, "type": kind, "katottg": code or None, "country": country, "chain_letter": chain,
-        "names": json.dumps({"uk": name}, ensure_ascii=False), "parents": json.dumps(parents or []),
+        "names": json.dumps(names, ensure_ascii=False), "parents": json.dumps(parents or []),
         "tiers": json.dumps({} if tier is None else {"ukraine": tier}),
     }  # fmt: skip
 
@@ -75,41 +76,49 @@ def feature(layer: str, **props: Any) -> TileFeature:
 RENAME = Rename("Староград", "Новоград", "2016-02-04", "тест")
 
 
+NEW_CITY = row("ua:a", "city", "Новоград", code="UA01000000000000001", former=("Староград",))
+VILLAGE_CODE = "UA01000000000000002"
+NO_EXCEPTIONS: frozenset[str] = frozenset()
+
+
 def test_rename_check_excuses_a_coded_namesake_of_another_type_and_its_tile_label() -> None:
-    rows = [row("ua:a", "city", "Новоград", code="UA01000000000000001"), row("ua:b", "selo", "Староград", code="UA01000000000000002")]
+    rows = [NEW_CITY, row("ua:b", "selo", "Староград", code=VILLAGE_CODE)]
     village_label = [feature("place", **{"name:uk": "Староград", "id": "ua:b", "kind": "city"})]  # kind не має значення
 
-    assert gz.rename_violations([RENAME], gazetteer(rows), village_label) == []
+    assert gz.rename_violations([RENAME], frozenset({VILLAGE_CODE}), gazetteer(rows), village_label) == []
 
 
 def test_rename_check_flags_an_old_name_held_by_another_entity_of_the_renamed_type() -> None:
     renamed_village = [
-        row("ua:a", "selo", "Новоград", code="UA01000000000000001"),
-        row("ua:b", "selo", "Староград", code="UA01000000000000002"),
+        row("ua:a", "selo", "Новоград", code="UA01000000000000001", former=("Староград",)),
+        row("ua:b", "selo", "Староград", code=VILLAGE_CODE),
     ]
-    old_city = [row("ua:a", "city", "Новоград", code="UA01000000000000001"), row("ua:c", "city", "Староград", code="UA01000000000000003")]
+    old_city = [NEW_CITY, row("ua:c", "city", "Староград", code=VILLAGE_CODE)]
+    exceptions = frozenset({VILLAGE_CODE})
 
-    assert len(gz.rename_violations([RENAME], gazetteer(renamed_village), [])) == 1
-    assert len(gz.rename_violations([RENAME], gazetteer(old_city), [])) == 1
+    assert len(gz.rename_violations([RENAME], exceptions, gazetteer(renamed_village), [])) == 1
+    assert len(gz.rename_violations([RENAME], exceptions, gazetteer(old_city), [])) == 1
 
 
-def test_rename_check_gives_no_excuse_without_a_katottg_code_or_a_matching_entity_id() -> None:
-    uncoded = [row("ua:a", "city", "Новоград", code="UA01000000000000001"), row("wd:Q1", "lake", "Староград")]
-    clean = gazetteer([row("ua:a", "city", "Новоград", code="UA01000000000000001")])
+def test_rename_check_gives_no_excuse_without_an_exception_code_or_a_matching_entity_id() -> None:
+    namesake = [NEW_CITY, row("ua:b", "selo", "Староград", code=VILLAGE_CODE)]
+    uncoded = [NEW_CITY, row("wd:Q1", "lake", "Староград")]
+    clean = gazetteer([NEW_CITY])
 
-    assert len(gz.rename_violations([RENAME], gazetteer(uncoded), [])) == 1
-    assert len(gz.rename_violations([RENAME], clean, [feature("place", **{"name:uk": "Староград", "id": "ua:zzz"})])) == 1
+    assert len(gz.rename_violations([RENAME], NO_EXCEPTIONS, gazetteer(namesake), [])) == 1  # код не внесено у винятки
+    assert len(gz.rename_violations([RENAME], NO_EXCEPTIONS, gazetteer(uncoded), [])) == 1
+    assert len(gz.rename_violations([RENAME], NO_EXCEPTIONS, clean, [feature("place", **{"name:uk": "Староград", "id": "ua:zzz"})])) == 1
 
 
 @pytest.mark.parametrize("layer", ["place", "admin", "country", "water", "waterway", "peak"])
 def test_rename_check_looks_for_the_old_name_in_every_layer_with_names(layer: str) -> None:
-    clean = gazetteer([row("ua:a", "city", "Новоград", code="UA01000000000000001")])
+    clean = gazetteer([NEW_CITY])
 
-    assert len(gz.rename_violations([RENAME], clean, [feature(layer, **{"name:uk": "Староград"})])) == 1
+    assert len(gz.rename_violations([RENAME], NO_EXCEPTIONS, clean, [feature(layer, **{"name:uk": "Староград"})])) == 1
 
 
 def test_rename_check_flags_a_missing_new_name() -> None:
-    assert len(gz.rename_violations([RENAME], gazetteer([row("ua:a", "city", "Інше")]), [])) == 1
+    assert len(gz.rename_violations([RENAME], NO_EXCEPTIONS, gazetteer([row("ua:a", "city", "Інше")]), [])) == 1
 
 
 # --- лічильники й літери -----------------------------------------------------------------------------------------------

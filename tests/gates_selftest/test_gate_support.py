@@ -11,8 +11,9 @@ import mapbox_vector_tile
 import pytest
 from shapely.geometry import box, mapping
 
-from pipeline.policy import load_policy
+from pipeline.policy import Rename, load_policy
 from tests.gates import gate_support as gs
+from tests.gates import gazetteer_support as gz
 from tests.gates_selftest.bad_dataset import FORBIDDEN_SAMPLE, build_dataset, tile_xy
 
 # Рядок із шести символів: зворотна скісна риска, `u` і чотири hex-цифри літери U+044D.
@@ -281,3 +282,95 @@ def test_lock_source_violations_catch_each_field() -> None:
     assert gs.lock_source_violations({**good, "ne_version": "5.2.0"}, {"sources": sources})
     assert gs.lock_source_violations({**good, "osm_timestamp": "2026-01-02T00:00:00Z"}, {"sources": sources})
     assert gs.lock_source_violations(good, {})  # порожній lock не може підтвердити маніфест
+
+
+# --- перейменування: former[], винятки за кодами, JSON ---------------------------------------------------------
+
+_RENAME = Rename(old="Старе", new="Нове", date="2016-02-04", source="тест", kind="soviet")
+_EXCEPTION_CODE = "UA05000000000000001"
+
+
+def _row(entity_id: str, kind: str, name: str, code: str | None = None, former: tuple[str, ...] = ()) -> dict[str, Any]:
+    names = {"uk": name, "former": [{"name": f, "kind": "soviet", "until": "2016-02-04"} for f in former]}
+    return {"id": entity_id, "type": kind, "names": json.dumps(names, ensure_ascii=False), "katottg": code}
+
+
+def _world(*rows: dict[str, Any]) -> gs.Gazetteer:
+    return gs.Gazetteer(Path("x"), list(rows), [])
+
+
+def test_rename_violation_when_former_is_empty() -> None:
+    renamed = _row("ua:1", "city", "Нове")
+    found = gz.rename_violations([_RENAME], frozenset(), _world(renamed), [])
+
+    assert found == ["перейменування №1: стара назва відсутня у former[]"]
+    fixed = _row("ua:1", "city", "Нове", former=("Старе",))
+    assert gz.rename_violations([_RENAME], frozenset(), _world(fixed), []) == []
+
+
+def test_homonym_village_is_excused_only_by_code() -> None:
+    renamed = _row("ua:1", "city", "Нове", former=("Старе",))
+    village = _row("ua:2", "selo", "Старе", _EXCEPTION_CODE)
+
+    without_code = gz.rename_violations([_RENAME], frozenset(), _world(renamed, village), [])
+    with_code = gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed, village), [])
+    nameless = gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed, _row("ua:2", "selo", "Старе")), [])
+
+    assert without_code == ["перейменування №1: стара назва є чинною назвою сутності без винятку"]
+    assert with_code == []
+    assert nameless  # однойменне село без коду виняток не отримує, а код винятку лишається без сутності
+
+
+def test_exception_does_not_excuse_an_entity_of_the_renamed_type() -> None:
+    renamed = _row("ua:1", "city", "Нове", former=("Старе",))
+    same_type = _row("ua:2", "city", "Старе", _EXCEPTION_CODE)
+
+    found = gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed, same_type), [])
+
+    assert found == ["перейменування №1: стара назва є чинною назвою сутності без винятку"]
+
+
+def test_exception_code_that_matches_no_entity_is_a_violation() -> None:
+    renamed = _row("ua:1", "city", "Нове", former=("Старе",))
+
+    found = gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed), [])
+
+    assert found == ["виняток №1 не відповідає жодній сутності"]
+
+
+def test_exception_entity_with_other_name_is_a_violation() -> None:
+    renamed = _row("ua:1", "city", "Нове", former=("Старе",))
+    other = _row("ua:2", "selo", "Інше", _EXCEPTION_CODE)
+
+    found = gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed, other), [])
+
+    assert found == ["виняток №1 не відповідає жодній сутності"]
+
+
+def test_old_name_in_tiles_is_excused_only_for_an_exception_entity() -> None:
+    renamed = _row("ua:1", "city", "Нове", former=("Старе",))
+    village = _row("ua:2", "selo", "Старе", _EXCEPTION_CODE)
+    stray = _row("ua:3", "selo", "Старе", None)
+    tiles = [_feature("place", {"id": "ua:2", "name:uk": "Старе"})]
+    stray_tiles = [_feature("place", {"id": "ua:3", "name:uk": "Старе"})]
+
+    assert gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed, village), tiles) == []
+    found = gz.rename_violations([_RENAME], frozenset({_EXCEPTION_CODE}), _world(renamed, village, stray), stray_tiles)
+    assert any("в тайлах" in line for line in found)
+    assert "Старе" not in "".join(found)
+
+
+def test_json_old_name_violation_names_file_and_index_only() -> None:
+    payload = {"entities": [{"id": "ua:1", "name": "Київ"}, {"id": "ua:2", "name": "Старе"}]}
+
+    found = gz.json_old_name_violations(payload, [_RENAME], "gazetteer.json")
+
+    assert found == ["gazetteer.json: стара назва у JSON (рядок №9)"]
+    assert gz.json_old_name_violations({"entities": [{"id": "ua:1", "name": "Нове"}]}, [_RENAME], "gazetteer.json") == []
+
+
+def test_json_old_name_of_an_exception_entity_is_excused_by_its_id() -> None:
+    payload = {"entities": [{"id": f"ua:{_EXCEPTION_CODE}", "name": "Старе"}]}
+
+    assert gz.json_old_name_violations(payload, [_RENAME], "g.json", frozenset({_EXCEPTION_CODE})) == []
+    assert gz.json_old_name_violations(payload, [_RENAME], "g.json")

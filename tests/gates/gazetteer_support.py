@@ -15,7 +15,8 @@ from pipeline.gazetteer import GazetteerError, effective_chain_tier
 from pipeline.katottg import KatottgUnit
 from pipeline.letters import ALPHABET
 from pipeline.policy import Rename
-from tests.gates.gate_support import Gazetteer, TileFeature, safe_id
+from pipeline.renames import RENAMED_TYPE_RANK
+from tests.gates.gate_support import Gazetteer, TileFeature, json_strings, safe_id
 
 SCOPE = "ukraine"
 COUNTRY_UA = "UA"
@@ -26,8 +27,6 @@ CRIMEA_CODE_PREFIXES = ("UA01", "UA85")
 K_CODE_PREFIXES = ("UA80", "UA85")
 ARK_CODE_PREFIX = "UA01"
 SOFT_SIGN = chr(0x044C)
-# Старшинство типів, з яких береться тип перейменованої сутності (серед однойменних пунктів із назвою `new`).
-RENAMED_TYPE_RANK = ("city", "selyshche", "selo")
 
 # Додаток Б: 27 одиниць O/K, 136 районів, 1 469 громад (без Криму), 463 міста; допуск ± 2.
 EXPECTED_COUNTS: Mapping[str, int] = {"oblast_plus_k": 27, "raion": 136, "hromada": 1469, "city": 463}
@@ -103,43 +102,94 @@ def _primary_type(holders: Sequence[Mapping[str, Any]]) -> str:
     return next((kind for kind in RENAMED_TYPE_RANK if kind in types), sorted(types)[0])
 
 
-def rename_violations(renames: Sequence[Rename], gazetteer: Gazetteer, tile_features: Iterable[TileFeature]) -> list[str]:
-    """Нова назва є в газетирі; стара не є назвою сутності того самого типу й не трапляється як `name:uk` у тайлах.
+def _renamed_entities(rename: Rename, new_holders: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Перейменована сутність: за `katottg` пари, інакше — найстаршого типу серед сутностей з назвою `new`."""
+    if rename.katottg is not None:
+        return [row for row in new_holders if _code(row) == rename.katottg]
+    primary = _primary_type(new_holders) if new_holders else None
+    return [row for row in new_holders if row["type"] == primary]
+
+
+def _former_names(row: Mapping[str, Any]) -> set[str]:
+    former = json.loads(row["names"]).get("former", [])
+    return {item["name"] for item in former if isinstance(item, Mapping) and isinstance(item.get("name"), str)}
+
+
+def _exception_violations(
+    exceptions: frozenset[str], by_code: Mapping[str, Mapping[str, Any]], wanted_old: set[str]
+) -> list[str]:
+    """Кожен код винятку веде до сутності, чия канонічна назва — `old` якоїсь пари."""
+    return [
+        f"виняток №{number} не відповідає жодній сутності"
+        for number, code in enumerate(sorted(exceptions), start=1)
+        if code not in by_code or uk_name(by_code[code]) not in wanted_old
+    ]
+
+
+def rename_violations(
+    renames: Sequence[Rename], exceptions: frozenset[str], gazetteer: Gazetteer, tile_features: Iterable[TileFeature]
+) -> list[str]:
+    """Нова назва є; стара лишилась лише у `former[]`; винятки (однойменні села) — тільки за кодом КАТОТТГ.
 
     Відхилення від брифу («стара не є канонічною назвою жодної сутності»): у КАТОТТГ лишаються однойменні
-    неперейменовані пункти іншого типу (села «Красний Лиман», «Красний Луч», «Ватутіне», «Южне»). Тип перейменованої
-    сутності береться з сутності з назвою `new`; сутності інших типів отримують виняток, лише якщо мають код КАТОТТГ.
-    Фіча тайла (будь-який шар із `name:uk`) отримує виняток, лише якщо її `id` веде до такої сутності газетира.
+    неперейменовані пункти іншого типу (села «Красний Лиман», «Красний Луч», «Ватутіне», «Южне»). Така сутність
+    виправдана, лише якщо її код стоїть у `exceptions` і тип відрізняється від типу перейменованої. Фіча тайла
+    (будь-який шар із `name:uk`) виправдана, лише якщо її `id` веде до сутності з кодом із `exceptions`.
+    Кожен код винятку мусить вести до сутності з назвою `old` якоїсь пари: застарілий виняток теж порушення.
     """
     rows = gazetteer.entities
     holders: dict[str, list[Mapping[str, Any]]] = {}
     by_id: dict[str, Mapping[str, Any]] = {}
+    by_code: dict[str, Mapping[str, Any]] = {}
     for row in rows:
         holders.setdefault(uk_name(row), []).append(row)
         by_id[row["id"]] = row
-    old_in_tiles: dict[str, list[TileFeature]] = {}
+        if _code(row):
+            by_code[_code(row)] = row
     wanted_old = {rename.old for rename in renames}
+    old_in_tiles: dict[str, list[TileFeature]] = {}
     for feature in tile_features:
         name = feature.properties.get("name:uk")
         if isinstance(name, str) and name in wanted_old:
             old_in_tiles.setdefault(name, []).append(feature)
+
+    def excused_by_code(row: Mapping[str, Any] | None) -> bool:
+        return row is not None and _code(row) in exceptions
+
     found: list[str] = []
     for number, rename in enumerate(renames, start=1):
         new_holders = holders.get(rename.new, [])
         if not new_holders:
             found.append(f"перейменування №{number}: нової назви немає в газетирі")
+        renamed = _renamed_entities(rename, new_holders)
+        if renamed and not any(rename.old in _former_names(row) for row in renamed):
+            found.append(f"перейменування №{number}: стара назва відсутня у former[]")
         renamed_type = _primary_type(new_holders) if new_holders else None
-
-        def excused(row: Mapping[str, Any] | None, renamed_type: str | None = renamed_type) -> bool:
-            return row is not None and renamed_type is not None and row["type"] != renamed_type and bool(_code(row))
-
-        if any(not excused(row) for row in holders.get(rename.old, [])):
-            found.append(f"перейменування №{number}: стара назва є назвою сутності того самого типу")
+        if any(not (excused_by_code(row) and row["type"] != renamed_type) for row in holders.get(rename.old, [])):
+            found.append(f"перейменування №{number}: стара назва є чинною назвою сутності без винятку")
         for feature in old_in_tiles.get(rename.old, []):
-            if not excused(by_id.get(feature.properties.get("id"))):
+            if not excused_by_code(by_id.get(feature.properties.get("id"))):
                 found.append(f"перейменування №{number}: стара назва в тайлах {feature.where()}")
                 break
-    return found
+    return [*found, *_exception_violations(exceptions, by_code, wanted_old)]
+
+
+def json_old_name_violations(
+    payload: Mapping[str, Any], renames: Sequence[Rename], file_name: str, exceptions: frozenset[str] = frozenset()
+) -> list[str]:
+    """Стара назва не трапляється рядком у JSON; у звіт — лише файл і порядковий номер рядка.
+
+    Сутності з винятків (села з кодом із `exceptions`, id `ua:<код>`) пропускаються: їхня канонічна назва збігається зі старою.
+    """
+    wanted_old = {rename.old for rename in renames}
+    excused_ids = {f"ua:{code}" for code in exceptions}
+    entities = [e for e in payload.get("entities", []) if not (isinstance(e, Mapping) and e.get("id") in excused_ids)]
+    checked = {**payload, "entities": entities}
+    return [
+        f"{file_name}: стара назва у JSON (рядок №{index})"
+        for index, text in enumerate(json_strings(checked), start=1)
+        if text in wanted_old
+    ]
 
 
 # --- лічильники ----------------------------------------------------------------------------------------------------
