@@ -37,6 +37,7 @@ GATE_FILES = (
     "test_counts",
     "test_borders_full",
     "test_chain_letters",
+    "test_tiles_budget",
 )
 SUBPROCESS_TIMEOUT_S = 120
 EXIT_OK = 0

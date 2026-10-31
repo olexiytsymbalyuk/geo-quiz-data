@@ -52,6 +52,7 @@ VIOLATIONS: dict[str, str] = {
     "border_spike_off_natural_earth": "test_borders_full.py::test_border_matches_natural_earth",  # лише max
     "startable_soft_sign": "test_chain_letters.py::test_soft_sign_is_never_startable",
     "chain_letter_outside_pool": "test_chain_letters.py::test_chain_letters_belong_to_effective_pool",
+    "first_screen_over_budget": "test_tiles_budget.py::test_first_screen_tiles_within_budget",
 }
 # Порушення відхилення кордону -> спосіб зіпсувати еталон NE (`tiny_world.ne_polygons`).
 NE_DEVIATIONS = {
@@ -59,6 +60,8 @@ NE_DEVIATIONS = {
     "border_tail_off_natural_earth": "tail",
     "border_spike_off_natural_earth": "spike",
 }
+GOOD_FIRST_SCREEN_BYTES = 100_000
+OVER_BUDGET_FIRST_SCREEN_BYTES = 2_000_000  # понад ліміт воріт — тайли першого екрана роздулися
 RAW_NAME = "raw"
 WORK_NAME = "work"
 LOCK_NAME = "sources.lock"
@@ -236,9 +239,13 @@ def build_dataset(root: Path, violation: str | None = None, version: str = VERSI
     ne_deviation = NE_DEVIATIONS.get(violation or "")
     tiny_world.write_raw(raw_path(out), tiny_world.good_world(version)[0], ne_deviation=ne_deviation)  # еталон КАТОТТГ — добрий
     _write_json(out / f"gazetteer-ukraine-{version}.json", version, violation)
-    (out / "metrics.json").write_text(
-        json.dumps({"dataset_version": version, "neutral_country_ids": list(NEUTRAL_COUNTRY_IDS)}), encoding="utf-8"
-    )
+    first_screen_bytes = OVER_BUDGET_FIRST_SCREEN_BYTES if violation == "first_screen_over_budget" else GOOD_FIRST_SCREEN_BYTES
+    metrics = {
+        "dataset_version": version,
+        "neutral_country_ids": list(NEUTRAL_COUNTRY_IDS),
+        "tile_stats": {"first_screen_z3_z6_bytes": first_screen_bytes},
+    }
+    (out / "metrics.json").write_text(json.dumps(metrics), encoding="utf-8")
     artifacts = {p.name: {"sha256": _sha256(p), "size": p.stat().st_size} for p in sorted(out.iterdir())}
     if violation == "bad_sha256":
         first = next(iter(artifacts))
