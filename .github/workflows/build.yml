@@ -1,7 +1,9 @@
-# Ручна збірка атласу «Україна» (M0): fetch -> build -> ворота -> pre-release `m0`.
+# Ручна збірка атласу «Україна» (M0): перевірка версії -> fetch -> build -> ворота -> реліз dataset-<версія> -> m0.
 # Ворота не послаблюються: червоні ворота валять запуск. Датасет вивантажується лише після зелених воріт;
-# на провал -- тільки діагностика без тайлів і газетира (репозиторій публічний). Pre-release створює окремий job
-# лише після зеленого build.
+# на провал -- тільки діагностика без тайлів і газетира (репозиторій публічний).
+# Кожна версія -- власний реліз dataset-<версія>: його створюють один раз і далі не змінюють. Якщо такий реліз уже
+# є (або це не вдалося перевірити), запуск падає в validate, ще до двогодинної збірки. Реліз створює окремий job лише
+# після зеленого build; той самий job оновлює плаваючий pre-release `m0`, який призначено лише для огляду.
 name: Збірка атласу
 
 on:
@@ -29,6 +31,8 @@ jobs:
       version: ${{ steps.check.outputs.version }}
     env:
       VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Перевірити версію
         id: check
@@ -38,6 +42,25 @@ jobs:
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Реліз dataset-<версія> створюють один раз і не перезаписують, тож зайняту версію відхиляємо до двогодинної
+      # збірки (build чекає на цей job). gh завершується кодом 1 і коли релізу немає, і коли GitHub не відповів чи
+      # відмовив у доступі, тож «немає» визнаємо лише за точним текстом `release not found`: усе інше зупиняє запуск,
+      # бо невідомий стан не можна брати за вільну версію.
+      - name: Реліз цієї версії ще не існує
+        run: |
+          set -euo pipefail
+          if output=$(gh release view "dataset-$VERSION" 2>&1); then
+            echo "::error::реліз dataset-$VERSION уже існує і не перезаписується; для нових даних візьміть наступну версію"
+            exit 1
+          fi
+          if [ "$output" != "release not found" ]; then
+            echo "::error::не вдалося перевірити, чи існує реліз dataset-$VERSION; збірку не починаю"
+            nl=$'\n'
+            printf 'gh: %s\n' "${output//$nl/${nl}gh: }" >&2
+            exit 1
+          fi
+          echo "реліз dataset-$VERSION ще не існує"
 
   build:
     needs: validate
@@ -198,8 +221,12 @@ jobs:
           name: dataset-${{ env.VERSION }}
           path: release-files
 
-      - name: Pre-release m0
+      # Один перелік файлів і одні нотатки (з атрибуцією ліцензій) для обох релізів нижче. Теку звіряємо з переліком в обидва
+      # боки: manifest.json перелічує все, що в ній лежить, і споживач завантажує з релізу кожен такий файл, а до вже
+      # створеного релізу файл не додати.
+      - name: Перелік файлів і нотатки релізу
         run: |
+          set -euo pipefail
           files=(
             "release-files/ukraine-$VERSION.pmtiles"
             "release-files/gazetteer-$VERSION.sqlite"
@@ -210,8 +237,45 @@ jobs:
           for f in "${files[@]}"; do
             [ -f "$f" ] || { echo "::error::немає файла $f"; exit 1; }
           done
-          notes="Ворота зелені; версія датасету $VERSION; збірка $GITHUB_SHA.
-          © OpenStreetMap contributors, ODbL 1.0; КАТОТТГ — Міністерство розвитку громад та територій України (Мінрозвитку), CC BY 4.0; Natural Earth — public domain; Wikidata — CC0. Газетир — похідна база даних під ODbL 1.0."
+          listed=$(printf '%s\n' "${files[@]}")
+          for f in release-files/*; do
+            grep -qxF "$f" <<< "$listed" || { echo "::error::файл $f не входить до переліку релізу; додайте його до переліку в build.yml"; exit 1; }
+          done
+          printf '%s\n' "${files[@]}" > "$RUNNER_TEMP/release-files.txt"
+          printf '%s\n' \
+            "Ворота зелені; версія датасету $VERSION; збірка $GITHUB_SHA." \
+            "© OpenStreetMap contributors, ODbL 1.0; КАТОТТГ — Міністерство розвитку громад та територій України (Мінрозвитку), CC BY 4.0; Natural Earth — public domain; Wikidata — CC0. Газетир — похідна база даних під ODbL 1.0." \
+            > "$RUNNER_TEMP/release-notes.md"
+
+      # Реліз версії створюють один раз і далі не змінюють. Крок стоїть перед m0, тож збій створення лишає m0 недоторканим.
+      # sha256 manifest.json іде в нотатки й підсумок запуску: саме його закріплюють разом з версією й іменем релізу.
+      - name: Реліз dataset-<версія>
+        run: |
+          set -euo pipefail
+          files=()
+          while IFS= read -r f; do files+=("$f"); done < "$RUNNER_TEMP/release-files.txt"
+          manifest_sha=$(sha256sum "release-files/manifest.json")
+          manifest_sha=${manifest_sha%% *}
+          [[ $manifest_sha =~ ^[0-9a-f]{64}$ ]] || { echo "::error::не вдалося обчислити sha256 manifest.json"; exit 1; }
+          notes=$(cat "$RUNNER_TEMP/release-notes.md")
+          notes+=$'\n\n'"sha256 manifest.json: $manifest_sha"
+          notes+=$'\n'"Файли цього релізу workflow не замінює й не видаляє: нова збірка виходить окремим релізом наступної версії."
+          gh release create "dataset-$VERSION" "${files[@]}" --target "$GITHUB_SHA" --title "Атлас Україна $VERSION" --notes "$notes"
+          {
+            echo "### Реліз dataset-$VERSION створено"
+            echo '```'
+            echo "version: $VERSION"
+            echo "release: dataset-$VERSION"
+            echo "manifest_sha256: $manifest_sha"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Плаваючий pre-release лише для огляду: закріплюють реліз dataset-<версія>, а не m0.
+      - name: Pre-release m0 (лише для огляду)
+        run: |
+          files=()
+          while IFS= read -r f; do files+=("$f"); done < "$RUNNER_TEMP/release-files.txt"
+          notes=$(cat "$RUNNER_TEMP/release-notes.md")
           if gh release view m0 >/dev/null 2>&1; then
             gh release edit m0 --prerelease --title "M0: атлас Україна $VERSION" --notes "$notes"
           else
