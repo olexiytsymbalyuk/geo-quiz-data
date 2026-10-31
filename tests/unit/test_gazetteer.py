@@ -25,10 +25,11 @@ from pipeline.gazetteer import (
 )
 from pipeline.gazetteer_io import write_scope_json, write_sqlite
 from pipeline.katottg import KatottgUnit
-from pipeline.policy import Policy, load_policy
+from pipeline.policy import Policy, Rename, load_policy
 from pipeline.wikidata import WdItem
 
-POLICY: Policy = dataclasses.replace(load_policy(), startable_min=1)
+# Пар перейменувань реальної політики у синтетичному світі немає, тож тут вони порожні.
+POLICY: Policy = dataclasses.replace(load_policy(), startable_min=1, renames_check=())
 VERSION = "2026.11.1"
 
 OBL = "UA01000000000000001"
@@ -568,6 +569,30 @@ def test_write_scope_json_has_only_listed_keys(tmp_path: Path) -> None:
     assert by[f"ua:{BIG}"]["population"] == 120_000
     assert by[f"ua:{MID}"]["lat"] is None  # без точки - null, фільтрує фронтенд
     assert by[f"ua:{OBL}"]["tier"] is None
+
+
+def test_build_attaches_former_names_from_policy(tmp_path: Path) -> None:
+    old = "Старівка"
+    rename = Rename(old=old, new="Центрівка", date="2016-05-19", source="тест", kind="soviet")
+    policy = dataclasses.replace(POLICY, renames_check=(rename,))
+    result = build(policy=policy)
+    expected = [{"name": old, "kind": "soviet", "until": "2016-05-19"}]
+    assert by_id(result)[f"ua:{CAP}"].names["former"] == expected
+    assert result.metrics["former_names_total"] == 1
+
+    db_path = tmp_path / "g.sqlite"
+    write_sqlite(result, db_path)
+    con = sqlite3.connect(db_path)
+    try:
+        (names,) = con.execute("select names from entity where id = ?", (f"ua:{CAP}",)).fetchone()
+    finally:
+        con.close()
+    assert json.loads(names)["former"] == expected
+
+    scope_path = tmp_path / "scope.json"
+    write_scope_json(result, scope_path)
+    scope_text = scope_path.read_text(encoding="utf-8")
+    assert old not in scope_text and '"former"' not in scope_text
 
 
 def test_write_sqlite_roundtrip(tmp_path: Path) -> None:

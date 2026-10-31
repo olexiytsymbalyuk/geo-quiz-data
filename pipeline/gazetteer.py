@@ -30,6 +30,7 @@ from pipeline.geo_types import as_multipolygon
 from pipeline.katottg import KatottgUnit
 from pipeline.letters import chain_letter, compute_startable
 from pipeline.policy import Policy
+from pipeline.renames import apply_renames
 from pipeline.text import has_forbidden, normalize_key
 from pipeline.wikidata import WdItem, WikidataResult
 
@@ -539,6 +540,7 @@ def build_gazetteer(
     entities = _assign_tiers(base, by_code, metrics)
     startable = _startable_by_tier(entities, policy.startable_min)
     entities = _assign_chain_letters(entities, startable, metrics)
+    entities = apply_renames(entities, policy.renames_check, guard, metrics)
     entities += _piece_entities(_group_pieces(_water_pieces(osm_water, metrics)), guard, version, metrics, with_geom_ref=True)
     entities += _piece_entities(_group_pieces(_peak_pieces(osm_peaks, metrics)), guard, version, metrics, with_geom_ref=False)
     _check_unique(entities)
@@ -584,6 +586,7 @@ _COUNTER_KEYS = (
     "capital_unknown_code",
     "chain_letter_not_startable",
     "chain_tier_fallback",
+    "former_names_total",
 )
 
 
