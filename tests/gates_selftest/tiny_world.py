@@ -167,11 +167,12 @@ def _renamed_villages(hromadas: Sequence[Entity], version: str) -> list[Entity]:
     """Сутність із новою назвою для кожної пари `policy.renames_check`: пункт ярусу 4 типу `selyshche` із `former[]`.
 
     Тип `selyshche` (не `selo`), щоб однойменні села-винятки відрізнялися від перейменованої сутності за типом.
+    Пара з `katottg` отримує саме цей код: ворота шукають перейменовану сутність за ним.
     """
     parent = hromadas[CRIMEAN_HROMADAS]
     return [
         _entity(
-            _code(_prefix(parent), 50000 + i), "selyshche", rename.new, _parent_codes(parent), version, 4,
+            rename.katottg or _code(_prefix(parent), 50000 + i), "selyshche", rename.new, _parent_codes(parent), version, 4,
             [{"name": rename.old, "kind": rename.kind, "until": rename.date}],
         )
         for i, rename in enumerate(load_policy().renames_check)
@@ -266,6 +267,9 @@ def _apply_rename_violation(violation: str | None, entities: list[Entity]) -> li
     if violation == "exception_code_unknown":
         dropped = f"ua:{sorted(load_policy().renames_homonym_exceptions)[0]}"
         return [e for e in entities if e.id != dropped]
+    if violation == "rename_code_unresolved":  # перейменована сутність без коду: код пари ні до чого не веде
+        coded = next(rename for rename in renames if rename.katottg is not None)
+        return _replace(entities, _id_of(entities, coded.new), katottg=None)
     return entities
 
 

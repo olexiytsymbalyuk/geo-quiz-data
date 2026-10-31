@@ -136,6 +136,7 @@ def rename_violations(
     виправдана, лише якщо її код стоїть у `exceptions` і тип відрізняється від типу перейменованої. Фіча тайла
     (будь-який шар із `name:uk`) виправдана, лише якщо її `id` веде до сутності з кодом із `exceptions`.
     Кожен код винятку мусить вести до сутності з назвою `old` якоїсь пари: застарілий виняток теж порушення.
+    Пара з `katottg` мусить вести саме до сутності з новою назвою, і тип перейменованої береться з неї.
     """
     rows = gazetteer.entities
     holders: dict[str, list[Mapping[str, Any]]] = {}
@@ -162,9 +163,11 @@ def rename_violations(
         if not new_holders:
             found.append(f"перейменування №{number}: нової назви немає в газетирі")
         renamed = _renamed_entities(rename, new_holders)
+        if rename.katottg is not None and new_holders and not renamed:
+            found.append(f"перейменування №{number}: код КАТОТТГ пари не веде до сутності з новою назвою")
         if renamed and not any(rename.old in _former_names(row) for row in renamed):
             found.append(f"перейменування №{number}: стара назва відсутня у former[]")
-        renamed_type = _primary_type(new_holders) if new_holders else None
+        renamed_type = renamed[0]["type"] if renamed else None
         if any(not (excused_by_code(row) and row["type"] != renamed_type) for row in holders.get(rename.old, [])):
             found.append(f"перейменування №{number}: стара назва є чинною назвою сутності без винятку")
         for feature in old_in_tiles.get(rename.old, []):

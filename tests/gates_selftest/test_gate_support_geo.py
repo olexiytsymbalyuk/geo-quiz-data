@@ -121,6 +121,24 @@ def test_rename_check_flags_a_missing_new_name() -> None:
     assert len(gz.rename_violations([RENAME], NO_EXCEPTIONS, gazetteer([row("ua:a", "city", "Інше")]), [])) == 1
 
 
+CODED_RENAME = Rename("Староград", "Новоград", "2016-02-04", "тест", katottg="UA01000000000000009")
+
+
+def test_rename_check_flags_a_pair_code_that_leads_to_no_entity_with_the_new_name() -> None:
+    # Нова назва є, але не під кодом пари: перевірку former[] не можна мовчки пропустити.
+    assert len(gz.rename_violations([CODED_RENAME], NO_EXCEPTIONS, gazetteer([NEW_CITY]), [])) == 1
+
+
+def test_rename_check_takes_the_renamed_type_from_the_coded_entity() -> None:
+    coded_village = row("ua:v", "selo", "Новоград", code="UA01000000000000009", former=("Староград",))
+    other_city = row("ua:a", "city", "Новоград", code="UA01000000000000001")
+    namesake_village = row("ua:b", "selo", "Староград", code=VILLAGE_CODE)
+    rows = gazetteer([coded_village, other_city, namesake_village])
+
+    # Перейменоване -- село за кодом пари, тож однойменне село того самого типу винятком не виправдати.
+    assert len(gz.rename_violations([CODED_RENAME], frozenset({VILLAGE_CODE}), rows, [])) == 1
+
+
 # --- лічильники й літери -----------------------------------------------------------------------------------------------
 
 def test_counts_exclude_crimean_hromadas_and_count_k_cities_twice() -> None:

@@ -43,6 +43,7 @@ VIOLATIONS: dict[str, str] = {
     "former_missing": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
     "homonym_without_exception": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
     "exception_code_unknown": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
+    "rename_code_unresolved": "test_occupied_uses_katottg.py::test_renamed_places_use_new_names",
     "old_name_in_json": "test_occupied_uses_katottg.py::test_old_names_stay_out_of_scope_json",
     "districts_120": "test_counts.py::test_entity_count[raion]",
     "outline_hole": "test_borders_full.py::test_land_outline_is_one_polygon",
